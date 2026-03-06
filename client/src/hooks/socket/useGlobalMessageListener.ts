@@ -1,0 +1,79 @@
+import { useEffect } from "react";
+import { useSocket } from "@/providers/SocketProvider";
+import { useConversationsStore } from "@/stores/conversations.store";
+import { useAuthStore } from "@/stores/auth.store";
+import { useConversations } from "@/hooks/queries/useConversations";
+import { queryClient } from "@/providers/QueryProvider";
+import { queryKeys } from "@/lib/query-keys";
+
+/**
+ * Global listener that joins all conversation rooms on socket connect
+ * and increments unread counts for incoming messages from any screen.
+ */
+export function useGlobalMessageListener() {
+  const { socket } = useSocket();
+  const userId = useAuthStore((s) => s.user?.id);
+  const { incrementUnread } = useConversationsStore();
+  const { data: conversations } = useConversations();
+
+  // Join all conversation rooms so we receive messages from any screen
+  useEffect(() => {
+    if (!socket || !conversations) return;
+    for (const conv of conversations) {
+      socket.emit("conversation:join", { conversationId: conv.id });
+    }
+  }, [socket, conversations]);
+
+  // Listen for incoming messages globally — increment unread + refetch inbox
+  useEffect(() => {
+    if (!socket || !userId) return;
+
+    const handler = (data: {
+      conversationId: string;
+      messageId: string;
+      senderId: string;
+      content: string;
+      sentAt: string;
+      messageType?: string;
+      voiceDurationMs?: number;
+      waveform?: number[];
+    }) => {
+      if (data.senderId === userId) return;
+      // Don't increment unread if the user is currently viewing this conversation
+      const activeId = useConversationsStore.getState().activeConversationId;
+      if (data.conversationId !== activeId) {
+        incrementUnread(data.conversationId);
+      }
+
+      // Inject message into the React Query cache so it's ready instantly
+      const newMessage = {
+        id: data.messageId,
+        senderId: data.senderId,
+        content: data.content,
+        sentAt: data.sentAt,
+        deliveryStatus: "delivered" as const,
+        messageType: data.messageType ?? "text",
+        voiceDurationMs: data.voiceDurationMs ?? null,
+        waveform: data.waveform ?? null,
+      };
+      queryClient.setQueryData(
+        queryKeys.messages(data.conversationId),
+        (old: any) => {
+          if (!old?.pages?.length) return old;
+          const firstPage = old.pages[0] ?? [];
+          if (firstPage.some((m: any) => m.id === newMessage.id)) return old;
+          return {
+            ...old,
+            pages: [[newMessage, ...firstPage], ...old.pages.slice(1)],
+          };
+        }
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+    };
+
+    socket.on("conversation:message" as any, handler);
+    return () => {
+      socket.off("conversation:message" as any, handler);
+    };
+  }, [socket, userId, incrementUnread]);
+}
