@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String   @id @default(uuid())
+  anonymousAlias   String   @map("anonymous_alias")
+  deviceId         String   @map("device_id")
+  email            String?
+  subscriptionTier String   @default("free") @map("subscription_tier")
+  tokenVersion     Int      @default(0) @map("token_version")
+  createdAt        DateTime @default(now()) @map("created_at")
+  lastActiveAt     DateTime @default(now()) @map("last_active_at")
+  role                 String    @default("user")
+  suspendedUntil       DateTime? @map("suspended_until")
+  banned               Boolean   @default(false)
+  pushToken            String?   @map("push_token")
+  dateOfBirth          DateTime? @map("date_of_birth")
+  ageConfirmedAt       DateTime? @map("age_confirmed_at")
+  sensitiveDataConsent Boolean   @default(false) @map("sensitive_data_consent")
+  consentWithdrawnAt   DateTime? @map("consent_withdrawn_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  conversationsAsA   Conversation[]     @relation("ConversationUserA")
+  conversationsAsB   Conversation[]     @relation("ConversationUserB")
+  sentMessages       Message[]
+  ratings            Rating[]
+  reportsSubmitted   Report[]           @relation("ReportsSubmitted")
+  reportsReceived    Report[]           @relation("ReportsReceived")
+  blocksInitiated    BlockedUser[]      @relation("BlocksInitiated")
+  blocksReceived     BlockedUser[]      @relation("BlocksReceived")
+  crisisEvents       CrisisEvent[]
+  termsAcceptances   TermsAcceptance[]
+  consentRecords     ConsentRecord[]
+
+  @@unique([deviceId])
+  @@map("users")
+}
+
+model Conversation {
+  id            String    @id @default(uuid())
+  userAId       String    @map("user_a_id")
+  userBId       String    @map("user_b_id")
+  category      String
+  subTag        String?   @map("sub_tag")
+  status           String    @default("active")
+  matchContext     Json?     @map("match_context")
+  rawPromptCipher  String?   @map("raw_prompt_cipher")
+  rawPromptIv      String?   @map("raw_prompt_iv")
+  rawPromptAuthTag String?   @map("raw_prompt_auth_tag")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  lastMessageAt    DateTime? @map("last_message_at")
+
+  userA        User          @relation("ConversationUserA", fields: [userAId], references: [id])
+  userB        User          @relation("ConversationUserB", fields: [userBId], references: [id])
+  messages     Message[]
+  liveSessions LiveSession[]
+  ratings      Rating[]
+  reports      Report[]
+  crisisEvents CrisisEvent[]
+
+  @@index([userAId])
+  @@index([userBId])
+  @@index([status])
+  @@map("conversations")
+}
+
+model LiveSession {
+  id              String    @id @default(uuid())
+  conversationId  String    @map("conversation_id")
+  status          String    @default("active")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  endedAt         DateTime? @map("ended_at")
+  durationSeconds Int?      @map("duration_seconds")
+  extended        Boolean   @default(false)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  messages     Message[]
+
+  @@index([conversationId])
+  @@map("live_sessions")
+}
+
+model Message {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  senderId       String    @map("sender_id")
+  content        String
+  iv             String
+  authTag        String    @map("auth_tag")
+  sentAt         DateTime  @default(now()) @map("sent_at")
+  deliveryStatus String    @default("sent") @map("delivery_status")
+  deliveredAt    DateTime? @map("delivered_at")
+  readAt         DateTime? @map("read_at")
+  liveSessionId  String?   @map("live_session_id")
+  messageType    String    @default("text") @map("message_type")
+  voiceDurationMs Int?     @map("voice_duration_ms")
+  waveform       Json?
+  flagged        Boolean   @default(false)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation(fields: [senderId], references: [id])
+  liveSession  LiveSession? @relation(fields: [liveSessionId], references: [id])
+
+  @@index([conversationId])
+  @@index([conversationId, sentAt])
+  @@map("messages")
+}
+
+model Rating {
+  id                 String   @id @default(uuid())
+  conversationId     String   @map("conversation_id")
+  raterId            String   @map("rater_id")
+  score              Int
+  reconnectRequested Boolean  @default(false) @map("reconnect_requested")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  rater        User         @relation(fields: [raterId], references: [id])
+
+  @@index([conversationId])
+  @@map("ratings")
+}
+
+model Report {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  reporterId     String   @map("reporter_id")
+  reportedId     String   @map("reported_id")
+  reason                 String
+  details                String?
+  reportedMessageContent String?  @map("reported_message_content")
+  status                 String   @default("pending")
+  reviewedAt             DateTime? @map("reviewed_at")
+  resolvedAt             DateTime? @map("resolved_at")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  conversation      Conversation       @relation(fields: [conversationId], references: [id])
+  reporter          User               @relation("ReportsSubmitted", fields: [reporterId], references: [id])
+  reported          User               @relation("ReportsReceived", fields: [reportedId], references: [id])
+  moderationActions ModerationAction[]
+
+  @@map("reports")
+}
+
+model BlockedUser {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  blockedUserId String   @map("blocked_user_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user        User @relation("BlocksInitiated", fields: [userId], references: [id])
+  blockedUser User @relation("BlocksReceived", fields: [blockedUserId], references: [id])
+
+  @@unique([userId, blockedUserId])
+  @@index([userId])
+  @@index([blockedUserId])
+  @@map("blocked_users")
+}
+
+model CrisisEvent {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  conversationId  String?  @map("conversation_id")
+  liveSessionId   String?  @map("live_session_id")
+  triggerKeywords String[] @map("trigger_keywords")
+  resourcesShown  String[] @map("resources_shown")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id])
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+
+  @@map("crisis_events")
+}
+
+model TermsAcceptance {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  termsVersion String   @map("terms_version")
+  acceptedAt   DateTime @default(now()) @map("accepted_at")
+  ipCipher     String?  @map("ip_cipher")
+  ipIv         String?  @map("ip_iv")
+  ipAuthTag    String?  @map("ip_auth_tag")
+  appVersion   String?  @map("app_version")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("terms_acceptances")
+}
+
+model ConsentRecord {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  consentType    String    @map("consent_type")
+  consentVersion String    @map("consent_version")
+  granted        Boolean
+  textHash       String    @map("text_hash")
+  recordedAt     DateTime  @default(now()) @map("recorded_at")
+  withdrawnAt    DateTime? @map("withdrawn_at")
+  ipCipher       String?   @map("ip_cipher")
+  ipIv           String?   @map("ip_iv")
+  ipAuthTag      String?   @map("ip_auth_tag")
+  appVersion     String?   @map("app_version")
+  deviceType     String?   @map("device_type")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("consent_records")
+}
+
+model ModerationAction {
+  id          String   @id @default(uuid())
+  reportId    String   @map("report_id")
+  moderatorId String   @map("moderator_id")
+  action      String
+  reason      String?
+  duration    Int?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  report Report @relation(fields: [reportId], references: [id])
+
+  @@index([reportId])
+  @@map("moderation_actions")
+}

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sympathy Moderation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #333; }
+  .header { background: #1a73e8; color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .stats { display: flex; gap: 16px; font-size: 14px; }
+  .stat { background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 6px; }
+  .stat strong { margin-right: 4px; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 14px; }
+  .tab.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+  th { background: #f8f9fa; font-weight: 600; color: #555; }
+  tr:hover { background: #f0f4ff; cursor: pointer; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .badge-pending { background: #fff3cd; color: #856404; }
+  .badge-resolved { background: #d4edda; color: #155724; }
+  .badge-reviewed { background: #cce5ff; color: #004085; }
+
+  /* Detail panel */
+  .detail-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 100; }
+  .detail-overlay.open { display: flex; justify-content: center; align-items: start; padding-top: 40px; }
+  .detail-panel { background: #fff; border-radius: 12px; width: 90%; max-width: 800px; max-height: 85vh; overflow-y: auto; padding: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+  .detail-panel h2 { font-size: 18px; margin-bottom: 16px; }
+  .detail-section { margin-bottom: 20px; }
+  .detail-section h3 { font-size: 14px; font-weight: 600; color: #555; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .info-item { font-size: 14px; }
+  .info-item label { color: #888; font-size: 12px; display: block; }
+  .messages-list { max-height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px; padding: 12px; }
+  .msg { padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .msg:last-child { border-bottom: none; }
+  .msg .sender { font-weight: 600; color: #1a73e8; }
+  .msg .time { color: #999; font-size: 11px; margin-left: 8px; }
+  .msg .voice-tag { color: #888; font-style: italic; }
+  .reported-content { background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px; padding: 12px; font-size: 14px; white-space: pre-wrap; }
+  .history-note { font-size: 13px; color: #666; padding: 4px 0; }
+
+  /* Actions */
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .action-btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .btn-dismiss { background: #e0e0e0; color: #333; }
+  .btn-warn { background: #fff3cd; color: #856404; }
+  .btn-suspend { background: #ffe0b2; color: #e65100; }
+  .btn-ban { background: #ffcdd2; color: #b71c1c; }
+  .btn-escalate { background: #e1bee7; color: #6a1b9a; }
+  .btn-close { background: #f5f5f5; color: #333; border: 1px solid #ddd; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+
+  .reason-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; margin-top: 8px; }
+  .duration-input { width: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; margin-left: 8px; }
+  .action-form { display: none; margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 8px; }
+  .action-form.open { display: block; }
+  .action-form button[type=submit] { margin-top: 8px; padding: 8px 20px; background: #1a73e8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+
+  .past-actions { font-size: 13px; }
+  .past-action { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+  .past-action:last-child { border-bottom: none; }
+
+  .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
+  .pagination button { padding: 6px 12px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
+  .pagination button.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  .pagination button:disabled { opacity: 0.5; cursor: default; }
+  .empty { text-align: center; padding: 40px; color: #999; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Sympathy Moderation</h1>
+  <div class="stats">
+    <div class="stat"><strong id="stat-pending">-</strong> Pending</div>
+    <div class="stat"><strong id="stat-resolved">-</strong> Resolved Today</div>
+    <div class="stat"><strong id="stat-total">-</strong> Total</div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" data-status="">All</button>
+    <button class="tab" data-status="pending">Pending</button>
+    <button class="tab" data-status="resolved">Resolved</button>
+  </div>
+
+  <table id="reports-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Reporter</th>
+        <th>Reported</th>
+        <th>Category</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="reports-body"></tbody>
+  </table>
+
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<div class="detail-overlay" id="detail-overlay">
+  <div class="detail-panel" id="detail-panel"></div>
+</div>
+
+<script>
+(function() {
+  const token = new URLSearchParams(location.search).get('token') || '';
+  const baseUrl = location.pathname.replace(/\/$/, '');
+  let currentStatus = '';
+  let currentPage = 1;
+
+  function api(path, opts = {}) {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = baseUrl + path + sep + 'token=' + encodeURIComponent(token);
+    return fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    }).then(r => {
+      if (!r.ok) console.error('API error:', r.status, url);
+      return r.json();
+    }).catch(err => {
+      console.error('Fetch error:', err, url);
+      return {};
+    });
+  }
+
+  function formatDate(d) {
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
+      ' ' + dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function badgeClass(status) {
+    if (status === 'pending') return 'badge-pending';
+    if (status === 'resolved') return 'badge-resolved';
+    return 'badge-reviewed';
+  }
+
+  async function loadStats() {
+    const s = await api('/stats');
+    document.getElementById('stat-pending').textContent = s.pendingCount;
+    document.getElementById('stat-resolved').textContent = s.resolvedToday;
+    document.getElementById('stat-total').textContent = s.totalReports;
+  }
+
+  async function loadReports() {
+    const params = '?page=' + currentPage + '&limit=20' + (currentStatus ? '&status=' + currentStatus : '');
+    const data = await api('/reports' + params);
+    const tbody = document.getElementById('reports-body');
+
+    if (!data.reports || !data.reports.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">No reports found</td></tr>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = data.reports.map(r =>
+      '<tr data-id="' + r.id + '">' +
+        '<td>' + formatDate(r.createdAt) + '</td>' +
+        '<td>' + esc(r.reporter.anonymousAlias) + '</td>' +
+        '<td>' + esc(r.reported.anonymousAlias) + '</td>' +
+        '<td>' + esc(r.reason) + '</td>' +
+        '<td><span class="badge ' + badgeClass(r.status) + '">' + r.status + '</span></td>' +
+      '</tr>'
+    ).join('');
+
+    // Pagination
+    const pg = document.getElementById('pagination');
+    let html = '';
+    if (data.totalPages > 1) {
+      html += '<button ' + (currentPage <= 1 ? 'disabled' : '') + ' onclick="window.__modPrev()">Prev</button>';
+      for (let i = 1; i <= data.totalPages && i <= 10; i++) {
+        html += '<button class="' + (i === currentPage ? 'active' : '') + '" onclick="window.__modPage(' + i + ')">' + i + '</button>';
+      }
+      html += '<button ' + (currentPage >= data.totalPages ? 'disabled' : '') + ' onclick="window.__modNext()">Next</button>';
+    }
+    pg.innerHTML = html;
+
+    tbody.querySelectorAll('tr').forEach(tr => {
+      tr.addEventListener('click', () => openDetail(tr.dataset.id));
+    });
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  async function openDetail(reportId) {
+    const data = await api('/reports/' + reportId);
+    const r = data.report;
+    const overlay = document.getElementById('detail-overlay');
+    const panel = document.getElementById('detail-panel');
+
+    let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+      '<h2>Report: ' + esc(r.reason) + '</h2>' +
+      '<button class="btn-close" onclick="window.__modClose()">Close</button></div>';
+
+    // Report info
+    html += '<div class="detail-section"><h3>Report Info</h3><div class="info-grid">' +
+      '<div class="info-item"><label>Date</label>' + formatDate(r.createdAt) + '</div>' +
+      '<div class="info-item"><label>Status</label><span class="badge ' + badgeClass(r.status) + '">' + r.status + '</span></div>' +
+      '<div class="info-item"><label>Reporter</label>' + esc(r.reporter.anonymousAlias) + '</div>' +
+      '<div class="info-item"><label>Reported</label>' + esc(r.reported.anonymousAlias) + '</div>' +
+      '<div class="info-item"><label>Category</label>' + esc(r.reason) + '</div>' +
+      '<div class="info-item"><label>Conversation</label>' + esc(r.conversation?.category || '-') + '</div>' +
+      '</div>';
+
+    if (r.details) {
+      html += '<p style="margin-top:8px;font-size:14px"><strong>Details:</strong> ' + esc(r.details) + '</p>';
+    }
+    html += '</div>';
+
+    // Reported message content
+    if (r.reportedMessageContent) {
+      html += '<div class="detail-section"><h3>Reported Message Content</h3>' +
+        '<div class="reported-content">' + esc(r.reportedMessageContent) + '</div></div>';
+    }
+
+    // User histories
+    html += '<div class="detail-section"><h3>User History</h3>' +
+      '<div class="history-note">Reported user (' + esc(r.reported.anonymousAlias) + ') has been reported <strong>' + data.reportedUserReportCount + '</strong> time(s)' +
+      (r.reported.banned ? ' &mdash; <span style="color:red">BANNED</span>' : '') +
+      (r.reported.suspendedUntil && new Date(r.reported.suspendedUntil) > new Date() ? ' &mdash; <span style="color:orange">Suspended until ' + formatDate(r.reported.suspendedUntil) + '</span>' : '') +
+      '</div>' +
+      '<div class="history-note">Reporter (' + esc(r.reporter.anonymousAlias) + ') has submitted <strong>' + data.reporterReportCount + '</strong> report(s)</div>' +
+      '</div>';
+
+    // Messages
+    if (data.messages.length) {
+      html += '<div class="detail-section"><h3>Conversation Messages (last 50)</h3><div class="messages-list">';
+      data.messages.forEach(m => {
+        const isReported = m.senderId === r.reportedId;
+        if (m.messageType === 'voice') {
+          html += '<div class="msg"><span class="sender" style="' + (isReported ? 'color:#c62828' : '') + '">' +
+            esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br><span class="voice-tag">[Voice note]</span></div>';
+        } else {
+          html += '<div class="msg"><span class="sender" style="' + (isReported ? 'color:#c62828' : '') + '">' +
+            esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br>' + esc(m.content) + '</div>';
+        }
+      });
+      html += '</div></div>';
+    }
+
+    // Past moderation actions
+    if (r.moderationActions && r.moderationActions.length) {
+      html += '<div class="detail-section"><h3>Past Actions</h3><div class="past-actions">';
+      r.moderationActions.forEach(a => {
+        html += '<div class="past-action"><strong>' + esc(a.action) + '</strong>';
+        if (a.reason) html += ' &mdash; ' + esc(a.reason);
+        if (a.duration) html += ' (' + a.duration + ' days)';
+        html += '<span class="time"> ' + formatDate(a.createdAt) + '</span></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // Action buttons (only if pending)
+    if (r.status === 'pending') {
+      html += '<div class="detail-section"><h3>Take Action</h3><div class="actions">' +
+        '<button class="action-btn btn-dismiss" onclick="window.__modAction(\'' + r.id + '\',\'dismiss\')">Dismiss</button>' +
+        '<button class="action-btn btn-warn" onclick="window.__modAction(\'' + r.id + '\',\'warn\')">Warn</button>' +
+        '<button class="action-btn btn-suspend" onclick="window.__modShowSuspend(\'' + r.id + '\')">Suspend</button>' +
+        '<button class="action-btn btn-ban" onclick="window.__modAction(\'' + r.id + '\',\'ban\')">Ban</button>' +
+        '<button class="action-btn btn-escalate" onclick="window.__modAction(\'' + r.id + '\',\'escalate\')">Escalate</button>' +
+        '</div>' +
+        '<div class="action-form" id="suspend-form">' +
+          '<label>Duration (days): <input type="number" class="duration-input" id="suspend-days" min="1" max="365" value="7"></label>' +
+          '<br><input type="text" class="reason-input" id="suspend-reason" placeholder="Reason for suspension">' +
+          '<br><button type="submit" onclick="window.__modSubmitSuspend(\'' + r.id + '\')">Confirm Suspension</button>' +
+        '</div>' +
+        '</div>';
+    }
+
+    panel.innerHTML = html;
+    overlay.classList.add('open');
+  }
+
+  window.__modClose = function() {
+    document.getElementById('detail-overlay').classList.remove('open');
+  };
+
+  window.__modAction = async function(id, action) {
+    if (action === 'ban' && !confirm('Are you sure you want to permanently ban this user?')) return;
+    const reason = prompt('Reason for this action (optional):');
+    await api('/reports/' + id + '/action', {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    });
+    window.__modClose();
+    loadReports();
+    loadStats();
+  };
+
+  window.__modShowSuspend = function(id) {
+    document.getElementById('suspend-form').classList.toggle('open');
+  };
+
+  window.__modSubmitSuspend = async function(id) {
+    const days = parseInt(document.getElementById('suspend-days').value);
+    const reason = document.getElementById('suspend-reason').value;
+    if (!days || days < 1) { alert('Enter a valid number of days'); return; }
+    if (!confirm('Suspend this user for ' + days + ' days?')) return;
+    await api('/reports/' + id + '/action', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'suspend', reason, duration: days }),
+    });
+    window.__modClose();
+    loadReports();
+    loadStats();
+  };
+
+  window.__modPage = function(p) { currentPage = p; loadReports(); };
+  window.__modPrev = function() { if (currentPage > 1) { currentPage--; loadReports(); } };
+  window.__modNext = function() { currentPage++; loadReports(); };
+
+  // Tabs
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentStatus = tab.dataset.status;
+      currentPage = 1;
+      loadReports();
+    });
+  });
+
+  // Close overlay on background click
+  document.getElementById('detail-overlay').addEventListener('click', function(e) {
+    if (e.target === this) window.__modClose();
+  });
+
+  // Init
+  loadStats();
+  loadReports();
+})();
+</script>
+</body>
+</html>
