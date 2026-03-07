@@ -16,7 +16,7 @@ import { safetyRouter } from "./safety/safety.router.js";
 import { setIoInstance } from "./safety/safety.service.js";
 import { complianceRouter } from "./compliance/compliance.router.js";
 import { adminRouter } from "./admin/admin.router.js";
-import { startAutoArchiveWorker, stopAutoArchiveWorker } from "./conversation/conversation.worker.js";
+import { startAutoArchiveWorker, stopAutoArchiveWorker, startRetentionWorker, stopRetentionWorker } from "./conversation/conversation.worker.js";
 import { setupChatGateway } from "./chat/chat.gateway.js";
 import { startMessageBuffer, stopMessageBuffer } from "./chat/chat.service.js";
 import { startMatchingWorker, stopMatchingWorker } from "./matching/matching.worker.js";
@@ -86,10 +86,11 @@ setIoInstance(io);
 startMessageBuffer();
 startMatchingWorker();
 startAutoArchiveWorker();
+startRetentionWorker();
 startPushListener();
 
 httpServer.listen(config.PORT, () => {
-  console.log(`Sympathy server running on port ${config.PORT}`);
+  console.log(`Empath server running on port ${config.PORT}`);
 });
 
 // Graceful shutdown
@@ -98,6 +99,7 @@ async function shutdown(): Promise<void> {
   stopMatchingWorker();
   stopMessageBuffer();
   stopAutoArchiveWorker();
+  stopRetentionWorker();
   httpServer.close();
   await prisma.$disconnect();
   redis.disconnect();

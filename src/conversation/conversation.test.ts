@@ -37,6 +37,7 @@ vi.mock("../lib/prisma.js", () => ({
       findMany: vi.fn(),
       findUnique: vi.fn(),
       updateMany: vi.fn(),
+      deleteMany: vi.fn(),
     },
   },
 }));
@@ -57,6 +58,7 @@ import {
   archiveConversation,
   requestReconnect,
   autoArchiveStaleConversations,
+  deleteExpiredMessages,
 } from "./conversation.service.js";
 import { prisma } from "../lib/prisma.js";
 import { emitNotification } from "../notifications/notification.service.js";
@@ -200,6 +202,24 @@ describe("conversation.service", () => {
       (mockPrisma.conversation.updateMany as any).mockResolvedValue({ count: 5 });
       const count = await autoArchiveStaleConversations(7);
       expect(count).toBe(5);
+    });
+  });
+
+  describe("deleteExpiredMessages", () => {
+    it("deletes messages from expired archived/blocked conversations", async () => {
+      (mockPrisma.message.deleteMany as any).mockResolvedValue({ count: 12 });
+
+      const count = await deleteExpiredMessages(30);
+
+      expect(count).toBe(12);
+      expect(mockPrisma.message.deleteMany).toHaveBeenCalledWith({
+        where: {
+          conversation: {
+            status: { in: ["archived", "blocked"] },
+            lastMessageAt: { lt: expect.any(Date) },
+          },
+        },
+      });
     });
   });
 });

@@ -125,6 +125,11 @@ export default function ChatScreen() {
     }
   });
 
+  const messagesExpired =
+    data?.pages != null &&
+    data.pages.flat().length === 0 &&
+    conversation?.lastMessageAt != null;
+
   const messages = useMemo(() => {
     const serverMessages: Message[] = data?.pages.flatMap((p) => p) ?? [];
     // Only show optimistic messages that haven't been persisted yet.
@@ -338,6 +343,15 @@ export default function ChatScreen() {
             onEndReachedThreshold={0.5}
             contentContainerStyle={styles.messageList}
             keyboardShouldPersistTaps="handled"
+            ListFooterComponent={
+              messagesExpired ? (
+                <View style={styles.retentionNotice}>
+                  <Text style={styles.retentionText}>
+                    Previous messages were automatically removed after 30 days of inactivity.
+                  </Text>
+                </View>
+              ) : null
+            }
           />
 
           {isTyping && <TypingIndicator />}
@@ -436,5 +450,21 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     color: colors.textTertiary,
     marginHorizontal: 12,
+  },
+  retentionNotice: {
+    marginHorizontal: 32,
+    marginVertical: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: colors.info + "18",
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  retentionText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 18,
   },
 });

@@ -10,16 +10,21 @@ import { AppBackground } from "@/components/ui/AppBackground";
 import { recordConsent } from "@/api/compliance.api";
 import { Platform } from "react-native";
 
-const CONSENT_VERSION = "1.0";
+const CONSENT_VERSION = "1.1";
 
 const CONSENT_TEXT =
-  "To match you with someone experiencing something similar, we analyse the text you write. " +
+  "To match you with someone experiencing something similar, we analyse the text you write.\n\n" +
   "Your text may include information about your health, emotions, or personal circumstances. " +
   "Under UK law, this is considered sensitive personal data.\n\n" +
-  "What we do: Analyse your text to find a relevant match, then delete it after matching is complete.\n\n" +
-  "What we do NOT do: Diagnose you, categorise your health condition, store your text permanently, " +
-  "or share your text with anyone except your matched peer.\n\n" +
-  "You can withdraw this consent at any time in Settings, which will disable the matching feature.";
+  "What we do:\n" +
+  "\u2022 Analyse your text to find a relevant match, then delete it after matching is complete\n" +
+  "\u2022 To analyse your text, we send a version of it with identifying details removed to our AI provider, whose servers are located in the United States\n" +
+  "\u2022 We may review anonymised samples of text to improve our matching and safety systems\n\n" +
+  "What we do NOT do:\n" +
+  "\u2022 Diagnose you or categorise your health condition\n" +
+  "\u2022 Store your original text permanently\n" +
+  "\u2022 Share your text with anyone except your matched peer\n\n" +
+  "You can withdraw this consent at any time in Settings, which will disable the matching feature and trigger deletion of your retained data.";
 
 export default function ConsentScreen() {
   const router = useRouter();

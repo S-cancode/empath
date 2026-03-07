@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { AppBackground } from "@/components/ui/AppBackground";
 import { acceptTerms } from "@/api/compliance.api";
 
-const TERMS_VERSION = "1.0";
+const TERMS_VERSION = "1.1";
 
 export default function TermsScreen() {
   const router = useRouter();
@@ -48,7 +48,7 @@ export default function TermsScreen() {
 
         <Text style={styles.sectionTitle}>1. What This Service Is</Text>
         <Text style={styles.body}>
-          Sympathy is a peer connection platform for people experiencing similar
+          Empath is a peer connection platform for people experiencing similar
           life challenges. It is NOT therapy, NOT medical advice, and NOT a
           crisis service. Conversations are with other users, not professionals.
         </Text>
@@ -85,7 +85,7 @@ export default function TermsScreen() {
         <Text style={styles.sectionTitle}>6. Complaints</Text>
         <Text style={styles.body}>
           To make a complaint about how we handled a report or moderation
-          decision, contact complaints@sympathy.app. We will respond within 14
+          decision, contact complaints@empath.app. We will respond within 14
           days.
         </Text>
 
@@ -97,20 +97,47 @@ export default function TermsScreen() {
           content of conversations between users.
         </Text>
 
-        <Text style={styles.sectionTitle}>8. Limitation of Liability</Text>
+        <Text style={styles.sectionTitle}>8. Privacy</Text>
         <Text style={styles.body}>
-          To the fullest extent permitted by law, Sympathy shall not be liable
-          for any indirect, incidental, or consequential damages arising from
-          your use of the service.
+          Your use of Empath is also governed by our Privacy Notice, available
+          via the link below. By using the matching feature, you will be asked
+          to provide explicit consent for the processing of sensitive personal
+          data as described in our consent screen.
         </Text>
 
-        <Text style={styles.sectionTitle}>9. Changes to Terms</Text>
+        <Text style={styles.sectionTitle}>9. Your Content</Text>
+        <Text style={styles.body}>
+          You retain ownership of the text you submit. By using Empath, you
+          grant us a limited licence to process your text for the purposes
+          described in our Privacy Notice, including matching, safety
+          assessment, and moderation.
+        </Text>
+
+        <Text style={styles.sectionTitle}>10. Account Termination</Text>
+        <Text style={styles.body}>
+          You may delete your account at any time through the Settings menu. We
+          may terminate or suspend your account if you violate these Terms, as
+          described in Section 4.
+        </Text>
+
+        <Text style={styles.sectionTitle}>11. Limitation of Liability</Text>
+        <Text style={styles.body}>
+          Nothing in these Terms excludes or limits our liability for death or
+          personal injury caused by our negligence, fraud or fraudulent
+          misrepresentation, or any other liability that cannot be excluded or
+          limited under English law. Subject to the foregoing, to the fullest
+          extent permitted by law, Empath shall not be liable for any indirect,
+          incidental, or consequential damages arising from your use of the
+          service.
+        </Text>
+
+        <Text style={styles.sectionTitle}>12. Changes to Terms</Text>
         <Text style={styles.body}>
           We will notify you of material changes via in-app notification. Your
           continued use after changes constitutes acceptance.
         </Text>
 
-        <Text style={styles.sectionTitle}>10. Governing Law</Text>
+        <Text style={styles.sectionTitle}>13. Governing Law</Text>
         <Text style={styles.body}>
           These terms are governed by the laws of England and Wales.
         </Text>

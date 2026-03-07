@@ -352,3 +352,19 @@ export async function autoArchiveStaleConversations(staleDays = 7): Promise<numb
 
   return result.count;
 }
+
+export async function deleteExpiredMessages(retentionDays = 30): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+
+  const result = await prisma.message.deleteMany({
+    where: {
+      conversation: {
+        status: { in: ["archived", "blocked"] },
+        lastMessageAt: { lt: cutoff },
+      },
+    },
+  });
+
+  return result.count;
+}
