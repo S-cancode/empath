@@ -59,6 +59,9 @@ const PUSH_TYPES = new Set([
   "new_match",
   "new_message",
   "match_online",
+  "match_proposed",
+  "match_confirmed",
+  "match_declined",
   "live_session_invite",
 ]);
 
@@ -130,6 +133,33 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
         "Match Online",
         "Your match is online — start a live session?",
         pushData
+      );
+      break;
+
+    case "match_proposed":
+      await sendExpoPush(
+        token,
+        "New Match Proposal",
+        "Someone who understands wants to connect with you",
+        { screen: "match", ...payload }
+      );
+      break;
+
+    case "match_confirmed":
+      await sendExpoPush(
+        token,
+        "Match Confirmed",
+        "You're connected — say hello!",
+        pushData
+      );
+      break;
+
+    case "match_declined":
+      await sendExpoPush(
+        token,
+        "Match Update",
+        "Your match didn't go through — try again when you're ready",
+        { screen: "home", ...payload }
       );
       break;
 

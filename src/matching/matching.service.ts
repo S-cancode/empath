@@ -375,14 +375,31 @@ export async function declineProposal(
   await redis.del(`match:pending:${proposal.userAId}`);
   await redis.del(`match:pending:${proposal.userBId}`);
 
-  // The other user goes back into the queue (they stay in Redis + Postgres already)
-  // The declining user's queue entry is removed
   const decliningIsA = proposal.userAId === userId;
   const decliningUserId = decliningIsA ? proposal.userAId : proposal.userBId;
   const otherUserId = decliningIsA ? proposal.userBId : proposal.userAId;
 
-  // Remove declining user from queue
+  // Remove declining user from queue entirely
   await leaveQueue(decliningUserId);
+
+  // Re-queue the other user so they aren't left in limbo.
+  // tryMatchGlobal() removed both from the Redis sorted set when creating the proposal,
+  // so the other user needs to be re-added to be matchable again.
+  const otherCtx = decliningIsA ? proposal.matchContextB : proposal.matchContextA;
+  const otherUser = await prisma.user.findUnique({
+    where: { id: otherUserId },
+    select: { subscriptionTier: true },
+  });
+  const otherCategory = decliningIsA ? proposal.userBCategory : proposal.userACategory;
+
+  await joinQueue({
+    userId: otherUserId,
+    tier: otherUser?.subscriptionTier ?? "FREE",
+    category: otherCategory ?? "ai-prompt",
+    subTag: proposal.subTag ?? undefined,
+    joinedAt: Date.now(),
+    matchContext: otherCtx,
+  });
 
   // Notify the other user that the match was declined
   emitNotification({

@@ -423,17 +423,22 @@ export function setupChatGateway(io: Server): void {
     // --- Match proposal accept/decline ---
 
     socket.on("match:accept", async (data: { proposalId: string }) => {
-      const result = await acceptProposal(data.proposalId, userId);
-      if (result.status === "matched" && result.conversationId) {
-        // Both accepted — notify via rooms
-        io.to(`user:${userId}`).emit("match:confirmed", {
-          conversationId: result.conversationId,
-        });
+      try {
+        await acceptProposal(data.proposalId, userId);
+        // match:confirmed is emitted to both users via the notification bus listener below
+      } catch (err) {
+        console.error("match:accept error:", err);
+        socket.emit("error", { message: "Failed to accept match" });
       }
     });
 
     socket.on("match:decline", async (data: { proposalId: string }) => {
-      await declineProposal(data.proposalId, userId);
+      try {
+        await declineProposal(data.proposalId, userId);
+      } catch (err) {
+        console.error("match:decline error:", err);
+        socket.emit("error", { message: "Failed to decline match" });
+      }
     });
 
     // --- Push notification active conversation tracking ---
