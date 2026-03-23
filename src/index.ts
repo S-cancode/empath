@@ -31,14 +31,15 @@ import type { Request, Response, NextFunction } from "express";
 const app = express();
 app.set("trust proxy", 1);
 const httpServer = createServer(app);
+const allowedOrigin = config.NODE_ENV === "production" ? config.FRONTEND_URL || false : "*";
 const io = new Server(httpServer, {
-  cors: { origin: config.NODE_ENV === "production" ? false : "*", methods: ["GET", "POST"] },
+  cors: { origin: allowedOrigin, methods: ["GET", "POST"] },
   maxHttpBufferSize: 3e6, // 3MB for voice notes
 });
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({ origin: allowedOrigin }));
 app.use(express.json());
 app.use(apiLimiter);
 
