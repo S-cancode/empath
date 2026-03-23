@@ -68,23 +68,42 @@ export default function ProfileScreen() {
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete Permanently",
+          text: "Continue",
           style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteAccount();
-              await AsyncStorage.multiRemove([
-                "age_confirmed",
-                "terms_accepted_version",
-                "consent_recorded",
-                "onboarding_complete",
-              ]);
-              await logout();
-              Alert.alert("Account Deleted", "Your account has been deleted.");
-              router.replace("/(auth)/onboarding");
-            } catch {
-              Alert.alert("Error", "Something went wrong. Please try again.");
-            }
+          onPress: () => {
+            Alert.prompt(
+              "Confirm Deletion",
+              'Type "DELETE" to permanently delete your account.',
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Delete",
+                  style: "destructive",
+                  onPress: async (value) => {
+                    if (value?.trim().toUpperCase() !== "DELETE") {
+                      Alert.alert("Cancelled", 'You must type "DELETE" to confirm.');
+                      return;
+                    }
+                    try {
+                      await deleteAccount();
+                      await AsyncStorage.multiRemove([
+                        "age_confirmed",
+                        "terms_accepted_version",
+                        "consent_recorded",
+                        "onboarding_complete",
+                      ]);
+                      await logout();
+                      Alert.alert("Account Deleted", "Your account has been deleted.");
+                      router.replace("/(auth)/onboarding");
+                    } catch {
+                      Alert.alert("Error", "Something went wrong. Please try again.");
+                    }
+                  },
+                },
+              ],
+              "plain-text",
+              ""
+            );
           },
         },
       ]

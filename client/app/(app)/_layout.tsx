@@ -33,6 +33,10 @@ export default function AppLayout() {
         options={{ headerShown: false }}
       />
       <Stack.Screen
+        name="post-session"
+        options={{ headerShown: false, presentation: "fullScreenModal" }}
+      />
+      <Stack.Screen
         name="archived/index"
         options={{
           title: "Archived",

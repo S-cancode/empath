@@ -8,7 +8,7 @@ export interface AnalyseResult {
   primaryCategory: string;
   secondaryCategory?: string;
   subTags: string[];
-  intensity: number;
   keywords: string[];
   summary: string;
+  embedding?: number[];
 }

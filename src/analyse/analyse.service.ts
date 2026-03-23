@@ -2,6 +2,8 @@ import OpenAI from "openai";
 import { config } from "../config/index.js";
 import { categories } from "../categories/categories.data.js";
 import { ValidationError } from "../shared/errors.js";
+import { stripPII } from "./pii-stripper.js";
+import { generateEmbedding } from "./embedding.service.js";
 import type { AnalyseRequest, AnalyseResult } from "./analyse.types.js";
 
 const STUB_KEY = "sk-stub-placeholder-key";
@@ -21,11 +23,10 @@ ${categoryList}
 
 2. Select a PRIMARY category (required) and optionally a SECONDARY category if the concern clearly spans two areas.
 3. Select 1-3 relevant sub-tag IDs from the identified categories.
-4. Rate the emotional intensity on a scale of 1-5 (1 = mild concern, 5 = deep distress).
-5. Extract 8-12 keywords that capture both the emotional and situational essence of their message.
+4. Extract 8-12 keywords that capture both the emotional and situational essence of their message.
    Include a mix of: emotional words (e.g. "anxious", "overwhelmed"), situational words (e.g. "unemployment", "breakup"),
    and relatable themes (e.g. "self-worth", "loneliness"). More keywords = better matching.
-6. Write a warm, empathetic summary (1-2 sentences) that acknowledges their feelings without being clinical.
+5. Write a warm, empathetic summary (1-2 sentences) that acknowledges their feelings without being clinical.
    Use gentle language like "It sounds like..." or "It seems you're going through...".
    Never use diagnostic labels. Never minimize their experience.
 
@@ -34,7 +35,6 @@ Respond ONLY with valid JSON in this exact format:
   "primaryCategory": "<category-id>",
   "secondaryCategory": "<category-id or null>",
   "subTags": ["<sub-tag-id>", ...],
-  "intensity": <1-5>,
   "keywords": ["<keyword>", ...],
   "summary": "<warm empathetic summary>"
 }`;
@@ -56,7 +56,6 @@ function validateResult(raw: AnalyseResult): AnalyseResult {
   if (result.secondaryCategory === null) {
     result.secondaryCategory = undefined;
   }
-  result.intensity = Math.max(1, Math.min(5, Math.round(result.intensity)));
   result.keywords = (result.keywords ?? []).slice(0, 12);
   result.subTags = (result.subTags ?? []).slice(0, 3);
 
@@ -68,7 +67,7 @@ function validateResult(raw: AnalyseResult): AnalyseResult {
   return result;
 }
 
-function getStubResult(text: string): AnalyseResult {
+function getStubResult(text: string): Omit<AnalyseResult, "embedding"> {
   const lower = text.toLowerCase();
   let primaryCategory = "identity";
   let secondaryCategory: string | undefined;
@@ -100,7 +99,6 @@ function getStubResult(text: string): AnalyseResult {
     primaryCategory,
     secondaryCategory,
     subTags: [],
-    intensity: 3,
     keywords: ["support", "understanding"],
     summary:
       "It sounds like you're going through something difficult. You deserve someone who understands.",
@@ -117,25 +115,36 @@ export async function analyseText(request: AnalyseRequest): Promise<AnalyseResul
     );
   }
 
+  // Strip PII before sending to any external API
+  const strippedText = stripPII(request.text);
+
   if (!config.OPENAI_API_KEY || config.OPENAI_API_KEY === STUB_KEY) {
-    return getStubResult(request.text);
+    const stubResult = getStubResult(strippedText);
+    const embedding = await generateEmbedding(strippedText);
+    return { ...stubResult, embedding };
   }
 
   const client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    max_tokens: 512,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: request.text },
-    ],
-  });
 
-  const text = response.choices[0]?.message?.content;
+  // Run GPT analysis and embedding generation in parallel
+  const [chatResponse, embedding] = await Promise.all([
+    client.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 512,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: strippedText },
+      ],
+    }),
+    generateEmbedding(strippedText),
+  ]);
+
+  const text = chatResponse.choices[0]?.message?.content;
   if (!text) {
     throw new Error("Unexpected AI response: no content returned");
   }
 
   const parsed = JSON.parse(text) as AnalyseResult;
-  return validateResult(parsed);
+  const validated = validateResult(parsed);
+  return { ...validated, embedding };
 }

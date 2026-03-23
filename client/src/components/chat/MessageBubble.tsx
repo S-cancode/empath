@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { colors } from "@/theme/colors";
 import { VoiceMessageBubble } from "./VoiceMessageBubble";
 
@@ -12,6 +12,7 @@ interface MessageBubbleProps {
   messageType?: "text" | "voice";
   voiceDurationMs?: number;
   waveform?: number[];
+  onLongPress?: () => void;
 }
 
 const statusIcons: Record<string, string> = {
@@ -30,6 +31,7 @@ export function MessageBubble({
   messageType,
   voiceDurationMs,
   waveform,
+  onLongPress,
 }: MessageBubbleProps) {
   if (messageType === "voice") {
     return (
@@ -50,7 +52,11 @@ export function MessageBubble({
   });
 
   return (
-    <View style={[styles.wrapper, isMine && styles.wrapperMine]}>
+    <Pressable
+      style={[styles.wrapper, isMine && styles.wrapperMine]}
+      onLongPress={onLongPress}
+      delayLongPress={500}
+    >
       <View style={[styles.bubble, isMine ? styles.mine : styles.theirs]}>
         <Text style={[styles.content, isMine ? styles.contentMine : styles.contentTheirs]}>
           {content}
@@ -67,7 +73,7 @@ export function MessageBubble({
           </Text>
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 

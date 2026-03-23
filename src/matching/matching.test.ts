@@ -62,6 +62,9 @@ vi.mock("../lib/redis.js", () => ({
   },
 }));
 
+// Mock pgvector similarity results
+const mockSimilarities: Array<{ user_id: string; similarity: number }> = [];
+
 vi.mock("../lib/prisma.js", () => ({
   prisma: {
     conversation: {
@@ -76,6 +79,14 @@ vi.mock("../lib/prisma.js", () => ({
     blockedUser: {
       findFirst: vi.fn(async () => null),
     },
+    user: {
+      findUnique: vi.fn(async () => ({ deviceId: "device-hash" })),
+    },
+    matchQualityLog: {
+      create: vi.fn(),
+    },
+    $executeRawUnsafe: vi.fn(),
+    $queryRawUnsafe: vi.fn(async () => mockSimilarities),
   },
 }));
 
@@ -87,7 +98,7 @@ import {
   joinQueue,
   leaveQueue,
   getQueueSize,
-  tryMatchInCategory,
+  tryMatchGlobal,
   getDailyMatchCount,
   getDailyMatchStatus,
 } from "./matching.service.js";
@@ -98,25 +109,29 @@ describe("matching.service", () => {
     store.clear();
     sets.clear();
     strings.clear();
+    mockSimilarities.length = 0;
   });
 
-  it("adds user to queue", async () => {
+  it("adds user to global queue", async () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
-    const size = await getQueueSize("grief");
+    const size = await getQueueSize();
     expect(size).toBe(1);
   });
 
   it("removes user from queue", async () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
-    await leaveQueue("user-1", "grief");
-    expect(await getQueueSize("grief")).toBe(0);
+    await leaveQueue("user-1");
+    expect(await getQueueSize()).toBe(0);
   });
 
-  it("matches two users and creates a conversation", async () => {
+  it("matches two users via cosine similarity", async () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
     await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
 
-    const result = await tryMatchInCategory("grief");
+    // Mock pgvector returning high similarity
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.85 });
+
+    const result = await tryMatchGlobal();
     expect(result).not.toBeNull();
     expect(result!.conversationId).toBe("conversation-1");
     expect(result!.userAId).toBe("user-1");
@@ -125,7 +140,18 @@ describe("matching.service", () => {
 
   it("does not match with only one user", async () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
-    const result = await tryMatchInCategory("grief");
+    const result = await tryMatchGlobal();
+    expect(result).toBeNull();
+  });
+
+  it("rejects match below minimum similarity threshold", async () => {
+    await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
+    await joinQueue({ userId: "user-2", category: "identity", tier: "free", joinedAt: 2000 });
+
+    // Mock pgvector returning very low similarity
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.1 });
+
+    const result = await tryMatchGlobal();
     expect(result).toBeNull();
   });
 
@@ -134,7 +160,14 @@ describe("matching.service", () => {
     await joinQueue({ userId: "user-premium", category: "grief", tier: "premium", joinedAt: 2000 });
     await joinQueue({ userId: "user-3", category: "grief", tier: "free", joinedAt: 3000 });
 
-    const result = await tryMatchInCategory("grief");
+    // Premium user should be anchor (lowest score due to -60000 offset)
+    // Mock similarities from premium user's perspective
+    mockSimilarities.push(
+      { user_id: "user-free", similarity: 0.8 },
+      { user_id: "user-3", similarity: 0.7 },
+    );
+
+    const result = await tryMatchGlobal();
     expect(result).not.toBeNull();
     expect(result!.userAId).toBe("user-premium");
   });
@@ -143,7 +176,9 @@ describe("matching.service", () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
     await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
 
-    await tryMatchInCategory("grief");
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.85 });
+
+    await tryMatchGlobal();
 
     const count1 = await getDailyMatchCount("user-1");
     const count2 = await getDailyMatchCount("user-2");

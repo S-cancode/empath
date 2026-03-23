@@ -48,30 +48,46 @@ export async function getReportDetail(reportId: string) {
 
   if (!report) throw new NotFoundError("Report not found");
 
-  // Get conversation messages (decrypted)
-  const messages = await prisma.message.findMany({
-    where: { conversationId: report.conversationId },
-    orderBy: { sentAt: "desc" },
-    take: 50,
-    include: { sender: { select: { id: true, anonymousAlias: true } } },
-  });
+  // Determine message source: prefer conversation log from report record
+  let messages: Array<Record<string, unknown>> = [];
+  let messagesSource: "report_log" | "live" | "unavailable" = "unavailable";
+  let messagesNote: string | undefined;
 
-  const decryptedMessages = messages.map((msg) => {
-    let content: string;
-    try {
-      content = decrypt({ ciphertext: msg.content, iv: msg.iv, authTag: msg.authTag });
-    } catch {
-      content = "[unable to decrypt]";
+  const log = report.conversationLog as { messages?: Array<Record<string, unknown>>; totalMessageCount?: number } | null;
+  if (log?.messages && log.messages.length > 0) {
+    messages = log.messages;
+    messagesSource = "report_log";
+  } else {
+    // Fallback: try live messages from database
+    const liveMessages = await prisma.message.findMany({
+      where: { conversationId: report.conversationId },
+      orderBy: { sentAt: "asc" },
+      take: 50,
+      include: { sender: { select: { id: true, anonymousAlias: true } } },
+    });
+
+    if (liveMessages.length > 0) {
+      messages = liveMessages.map((msg) => {
+        let content: string;
+        try {
+          content = decrypt({ ciphertext: msg.content, iv: msg.iv, authTag: msg.authTag });
+        } catch {
+          content = "[unable to decrypt]";
+        }
+        return {
+          id: msg.id,
+          senderId: msg.senderId,
+          senderAlias: msg.sender.anonymousAlias,
+          content,
+          messageType: msg.messageType,
+          sentAt: msg.sentAt,
+        };
+      });
+      messagesSource = "live";
+    } else {
+      messagesNote = "Messages from this session have been deleted (session older than 7 days). Review based on reporter description and available evidence.";
     }
-    return {
-      id: msg.id,
-      senderId: msg.senderId,
-      senderAlias: msg.sender.anonymousAlias,
-      content,
-      messageType: msg.messageType,
-      sentAt: msg.sentAt,
-    };
-  }).reverse();
+  }
 
   // Report history for both users
   const [reportedUserHistory, reporterHistory] = await Promise.all([
@@ -81,7 +97,9 @@ export async function getReportDetail(reportId: string) {
 
   return {
     report,
-    messages: decryptedMessages,
+    messages,
+    messagesSource,
+    messagesNote,
     reportedUserReportCount: reportedUserHistory,
     reporterReportCount: reporterHistory,
   };

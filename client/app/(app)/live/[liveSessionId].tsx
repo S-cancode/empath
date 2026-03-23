@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { View, FlatList, Text, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -48,19 +48,20 @@ export default function LiveSessionScreen() {
   const isLow = timeRemaining < 60_000;
   const canExtend = tier !== "free";
 
+  useEffect(() => {
+    if (isEnded) {
+      router.replace({
+        pathname: "/(app)/post-session",
+        params: { conversationId: conversationId! },
+      });
+    }
+  }, [isEnded]);
+
   if (isEnded) {
     return (
       <SafeAreaView style={styles.endedContainer}>
         <AppBackground />
         <Text style={styles.endedTitle}>Session Ended</Text>
-        <Text style={styles.endedSubtitle}>
-          You can continue chatting asynchronously.
-        </Text>
-        <Button
-          title="Back to Chat"
-          onPress={() => router.back()}
-          style={{ marginTop: 24 }}
-        />
       </SafeAreaView>
     );
   }

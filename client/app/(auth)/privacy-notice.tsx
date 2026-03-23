@@ -15,22 +15,22 @@ export default function PrivacyNoticeScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
       >
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Text style={styles.backText}>{"\u2190"} Back</Text>
         </TouchableOpacity>
 
-        <Text style={styles.lastUpdated}>Last updated: 7 March 2026</Text>
-        <Text style={styles.title}>Privacy Notice</Text>
+        <Text style={styles.lastUpdated}>Last updated: 23 March 2026</Text>
+        <Text style={styles.title} accessibilityRole="header">Privacy Notice</Text>
 
-        <Text style={styles.sectionTitle}>1. Who We Are</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">1. Who We Are</Text>
         <Text style={styles.body}>
           Empath is operated by Empath Ltd, registered at 47 Meadway, London,
           N14 6NJ.{"\n\n"}
           Data protection lead: Dr Rohan Choudhari.{"\n"}
-          Contact: privacy@sympathy.app
+          Contact: privacy@empath.app
         </Text>
 
-        <Text style={styles.sectionTitle}>2. What Data We Collect</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">2. What Data We Collect</Text>
         <Text style={styles.body}>
           {"\u2022"} Device identifiers (to create your anonymous account){"\n"}
           {"\u2022"} Email address (optional, if you upgrade your account){"\n"}
@@ -44,7 +44,7 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Age declaration
         </Text>
 
-        <Text style={styles.sectionTitle}>3. Why We Collect It & Legal Basis</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">3. Why We Collect It & Legal Basis</Text>
         <Text style={styles.body}>
           We process your data to provide our peer support matching service.
           {"\n\n"}
@@ -55,7 +55,7 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Age verification: Legal obligation (Art. 6(1)(c))
         </Text>
 
-        <Text style={styles.sectionTitle}>4. Who We Share It With</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">4. Who We Share It With</Text>
         <Text style={styles.body}>
           {"\u2022"} Other users (your matched peer, in chat only){"\n"}
           {"\u2022"} AI provider (receives a version of your text with identifying details removed, for matching and safety analysis){"\n"}
@@ -63,11 +63,11 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Law enforcement (if legally compelled)
         </Text>
 
-        <Text style={styles.sectionTitle}>5. How Long We Keep It</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">5. How Long We Keep It</Text>
         <Text style={styles.body}>
           {"\u2022"} Free-text prompts: Deleted after matching (within minutes){"\n"}
           {"\u2022"} Anonymised matching data: Up to 180 days, then permanently deleted{"\n"}
-          {"\u2022"} Chat messages: Encrypted at rest; retained while conversation is active; automatically deleted 30 days after a conversation is archived or blocked; deleted immediately on account deletion{"\n"}
+          {"\u2022"} Chat messages: Encrypted at rest; automatically deleted after 7 days; messages related to an active report are retained until the report is resolved; deleted immediately on account deletion{"\n"}
           {"\u2022"} Crisis signposting logs: 12 months, then deleted{"\n"}
           {"\u2022"} Account data: Retained until account deletion{"\n"}
           {"\u2022"} Device identifiers and IP addresses: Retained for the lifetime of the account; deleted within 30 days of account deletion{"\n"}
@@ -75,10 +75,14 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Usage analytics: Anonymised within 90 days{"\n"}
           {"\u2022"} Terms acceptance: 2 years after account deletion{"\n"}
           {"\u2022"} Consent records: 6 years after account deletion{"\n"}
-          {"\u2022"} Report records: 12 months from resolution
+          {"\u2022"} Report records: 12 months from resolution{"\n\n"}
+          If you delete your account, some records are retained for legal
+          compliance: terms acceptance records (2 years), consent records (6
+          years), and report records (until their own retention period expires).
+          All other personal data is deleted within 30 days.
         </Text>
 
-        <Text style={styles.sectionTitle}>6. International Transfers</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">6. International Transfers</Text>
         <Text style={styles.body}>
           To analyse your text for matching and safety purposes, we send a
           pre-processed version (with identifying details removed) to our AI
@@ -87,7 +91,7 @@ export default function PrivacyNoticeScreen() {
           is processed and stored within the United Kingdom.
         </Text>
 
-        <Text style={styles.sectionTitle}>7. Your Rights</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">7. Your Rights</Text>
         <Text style={styles.body}>
           You have the right to:{"\n\n"}
           {"\u2022"} Access your personal data{"\n"}
@@ -100,7 +104,7 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Complain to the ICO
         </Text>
 
-        <Text style={styles.sectionTitle}>8. Automated Decision-Making</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">8. Automated Decision-Making</Text>
         <Text style={styles.body}>
           We use AI to analyse your free-text prompts for the purpose of finding
           a relevant match. This analysis extracts themes and keywords — it does
@@ -108,7 +112,7 @@ export default function PrivacyNoticeScreen() {
           your match based on a health label.
         </Text>
 
-        <Text style={styles.sectionTitle}>9. How to Complain</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">9. How to Complain</Text>
         <Text style={styles.body}>
           If you are unhappy with how we handle your data, you can complain to
           the Information Commissioner's Office (ICO):{"\n\n"}
@@ -116,7 +120,7 @@ export default function PrivacyNoticeScreen() {
           Phone: 0303 123 1113
         </Text>
 
-        <Text style={styles.sectionTitle}>10. Changes to This Policy</Text>
+        <Text style={styles.sectionTitle} accessibilityRole="header">10. Changes to This Policy</Text>
         <Text style={styles.body}>
           We will notify you of material changes via in-app notification. The
           "Last updated" date at the top will reflect the most recent revision.

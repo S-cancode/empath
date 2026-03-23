@@ -71,7 +71,7 @@ export const categories: Category[] = [
   },
   {
     id: "health",
-    name: "Health & Chronic Illness",
+    name: "Health Challenges",
     description: "Living with health conditions, chronic pain, or disability",
     subTags: [
       { id: "chronic-pain", name: "Chronic pain" },

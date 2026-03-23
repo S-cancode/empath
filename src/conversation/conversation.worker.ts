@@ -4,6 +4,7 @@ import {
   deleteExpiredReports,
   deleteExpiredTermsRecords,
   deleteExpiredConsentRecords,
+  deleteExpiredComplaints,
 } from "../compliance/compliance.service.js";
 
 const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -38,7 +39,7 @@ export function startRetentionWorker(): void {
   console.log("Retention worker started");
   retentionTimer = setInterval(async () => {
     try {
-      const msgCount = await deleteExpiredMessages(30);
+      const msgCount = await deleteExpiredMessages(7);
       if (msgCount > 0) console.log(`Deleted ${msgCount} expired messages`);
 
       const crisisCount = await deleteExpiredCrisisEvents();
@@ -52,6 +53,9 @@ export function startRetentionWorker(): void {
 
       const consentCount = await deleteExpiredConsentRecords();
       if (consentCount > 0) console.log(`Deleted ${consentCount} expired consent records`);
+
+      const complaintCount = await deleteExpiredComplaints();
+      if (complaintCount > 0) console.log(`Deleted ${complaintCount} expired complaints`);
     } catch (err) {
       console.error("Retention worker error:", err);
     }

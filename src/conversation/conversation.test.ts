@@ -39,6 +39,9 @@ vi.mock("../lib/prisma.js", () => ({
       updateMany: vi.fn(),
       deleteMany: vi.fn(),
     },
+    report: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
@@ -206,18 +209,33 @@ describe("conversation.service", () => {
   });
 
   describe("deleteExpiredMessages", () => {
-    it("deletes messages from expired archived/blocked conversations", async () => {
+    it("deletes messages older than retention period, skipping active reports", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([]);
       (mockPrisma.message.deleteMany as any).mockResolvedValue({ count: 12 });
 
-      const count = await deleteExpiredMessages(30);
+      const count = await deleteExpiredMessages(7);
 
       expect(count).toBe(12);
       expect(mockPrisma.message.deleteMany).toHaveBeenCalledWith({
         where: {
-          conversation: {
-            status: { in: ["archived", "blocked"] },
-            lastMessageAt: { lt: expect.any(Date) },
-          },
+          sentAt: { lt: expect.any(Date) },
+        },
+      });
+    });
+
+    it("protects messages in conversations with active reports", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([
+        { conversationId: "conv-reported" },
+      ]);
+      (mockPrisma.message.deleteMany as any).mockResolvedValue({ count: 5 });
+
+      const count = await deleteExpiredMessages(7);
+
+      expect(count).toBe(5);
+      expect(mockPrisma.message.deleteMany).toHaveBeenCalledWith({
+        where: {
+          sentAt: { lt: expect.any(Date) },
+          conversationId: { notIn: ["conv-reported"] },
         },
       });
     });

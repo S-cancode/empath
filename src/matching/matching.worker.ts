@@ -1,10 +1,11 @@
 import { redis } from "../lib/redis.js";
-import { tryMatchInCategory } from "./matching.service.js";
+import { tryMatchGlobal, cleanupStaleEntries } from "./matching.service.js";
 
 const POLL_INTERVAL = 500;
-const QUEUE_PREFIX = "match:queue:";
+const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 let running = false;
+let lastCleanup = Date.now();
 
 export async function startMatchingWorker(): Promise<void> {
   running = true;
@@ -12,14 +13,16 @@ export async function startMatchingWorker(): Promise<void> {
 
   while (running) {
     try {
-      const keys = await redis.keys(`${QUEUE_PREFIX}*`);
-      for (const key of keys) {
-        const category = key.replace(QUEUE_PREFIX, "");
-        const result = await tryMatchInCategory(category);
-        if (result) {
-          // Publish match event for Socket.IO to pick up
-          await redis.publish("match:created", JSON.stringify(result));
-        }
+      const result = await tryMatchGlobal();
+      if (result) {
+        await redis.publish("match:created", JSON.stringify(result));
+      }
+
+      // Periodic stale entry cleanup
+      if (Date.now() - lastCleanup > CLEANUP_INTERVAL) {
+        const cleaned = await cleanupStaleEntries();
+        if (cleaned > 0) console.log(`Cleaned ${cleaned} stale queue entries`);
+        lastCleanup = Date.now();
       }
     } catch (err) {
       console.error("Matching worker error:", err);

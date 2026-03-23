@@ -1,6 +1,35 @@
 import { prisma } from "../lib/prisma.js";
 import { encrypt } from "../lib/crypto.js";
+import { createHash } from "node:crypto";
 import { ValidationError, NotFoundError } from "../shared/errors.js";
+
+// --- Text versioning ---
+
+export async function upsertTermsVersion(
+  version: string,
+  content: string,
+  effectiveFrom: Date,
+): Promise<void> {
+  await prisma.termsVersion.upsert({
+    where: { version },
+    create: { version, content, effectiveFrom },
+    update: { content, effectiveFrom },
+  });
+}
+
+export async function upsertConsentTextVersion(
+  version: string,
+  consentType: string,
+  content: string,
+  effectiveFrom: Date,
+): Promise<void> {
+  const textHash = createHash("sha256").update(content).digest("hex");
+  await prisma.consentTextVersion.upsert({
+    where: { version },
+    create: { version, consentType, content, textHash, effectiveFrom },
+    update: { consentType, content, textHash, effectiveFrom },
+  });
+}
 
 export async function confirmAge(
   userId: string,
@@ -27,9 +56,19 @@ export async function confirmAge(
     return { confirmed: false };
   }
 
+  // Data minimisation: only store DOB for identified users (those with email).
+  // Anonymous users get only the confirmation flag and timestamp.
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
   await prisma.user.update({
     where: { id: userId },
-    data: { dateOfBirth: dob, ageConfirmedAt: new Date() },
+    data: {
+      dateOfBirth: user?.email ? dob : undefined,
+      ageConfirmedAt: new Date(),
+    },
   });
 
   return { confirmed: true };
@@ -216,6 +255,39 @@ export async function deleteExpiredConsentRecords(): Promise<number> {
   return result.count;
 }
 
+// --- Complaints ---
+
+export async function submitComplaint(
+  userId: string,
+  subject: string,
+  description: string,
+): Promise<{ id: string }> {
+  const complaint = await prisma.complaint.create({
+    data: { userId, subject, description },
+  });
+  return { id: complaint.id };
+}
+
+export async function getComplaintsForUser(userId: string) {
+  return prisma.complaint.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+/** Delete resolved complaints older than 12 months from resolution */
+export async function deleteExpiredComplaints(): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 12);
+
+  const result = await prisma.complaint.deleteMany({
+    where: {
+      resolvedAt: { not: null, lt: cutoff },
+    },
+  });
+  return result.count;
+}
+
 export async function deleteAccount(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new NotFoundError("User not found");
@@ -255,9 +327,14 @@ export async function deleteAccount(userId: string): Promise<void> {
   // Delete blocks where user is the blocker
   await prisma.blockedUser.deleteMany({ where: { userId } });
 
-  // Anonymise reports where user is the reporter (keep for moderation)
-  // We can't truly anonymise with a FK constraint, so we keep the reporter ID
-  // but the user record will be soft-deleted
+  // Delete complaints submitted by this user
+  await prisma.complaint.deleteMany({ where: { userId } });
+
+  // Remove from match queue if present
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM match_queue_entries WHERE user_id = $1`,
+    userId,
+  );
 
   // Soft-delete the user: nullify PII, keep record for retention periods
   await prisma.user.update({

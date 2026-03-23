@@ -28,6 +28,8 @@ const rateLimits = new Map<string, RateTracker>();
 const liveSessionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const extendRequests = new Map<string, Set<string>>();
 const liveSessionInvites = new Map<string, LiveSessionInvite>();
+// Track crisis alerts shown per user per conversation to enforce once-per-session
+const crisisAlertsSent = new Map<string, Set<string>>();
 
 function checkMessageRate(userId: string): boolean {
   const now = Date.now();
@@ -56,6 +58,7 @@ function startLiveSessionTimer(io: Server, liveSessionId: string, duration: numb
 }
 
 async function handleCrisisDetection(
+  io: Server,
   socket: Socket,
   userId: string,
   content: string,
@@ -65,6 +68,25 @@ async function handleCrisisDetection(
   const crisisResult = detectCrisis(content);
   if (!crisisResult.detected) return;
 
+  // Once-per-session: skip if already shown to this user in this conversation
+  const key = `${userId}:${conversationId}`;
+  if (crisisAlertsSent.has(key)) return;
+
+  // Mark as shown
+  if (!crisisAlertsSent.has(key)) {
+    crisisAlertsSent.set(key, new Set());
+  }
+  crisisAlertsSent.get(key)!.add(conversationId);
+
+  // Emit to BOTH users in the conversation (spec recommends showing to both)
+  const room = liveSessionId
+    ? `livesession:${liveSessionId}`
+    : `conversation:${conversationId}`;
+  io.to(room).emit("crisis:detected", {
+    resources: crisisResources,
+    keywords: crisisResult.matchedKeywords,
+  });
+  // Also emit directly to sender in case they haven't joined the room yet
   socket.emit("crisis:detected", {
     resources: crisisResources,
     keywords: crisisResult.matchedKeywords,
@@ -166,7 +188,7 @@ export function setupChatGateway(io: Server): void {
         return;
       }
 
-      await handleCrisisDetection(socket, userId, data.content, data.conversationId);
+      await handleCrisisDetection(io, socket, userId, data.content, data.conversationId);
 
       const message = await sendAsyncMessage(data.conversationId, userId, data.content);
 
@@ -322,7 +344,7 @@ export function setupChatGateway(io: Server): void {
         return;
       }
 
-      await handleCrisisDetection(socket, userId, data.content, data.conversationId, data.liveSessionId);
+      await handleCrisisDetection(io, socket, userId, data.content, data.conversationId, data.liveSessionId);
 
       bufferMessage(data.conversationId, userId, data.content, data.liveSessionId);
 
@@ -409,6 +431,10 @@ export function setupChatGateway(io: Server): void {
       setActiveConversation(userId, null).catch(() => {});
       await setOffline(userId);
       rateLimits.delete(userId);
+      // Clean up crisis alert tracking for this user
+      for (const [key] of crisisAlertsSent) {
+        if (key.startsWith(`${userId}:`)) crisisAlertsSent.delete(key);
+      }
 
       for (const partnerId of partnerIds) {
         if (await isOnline(partnerId)) {

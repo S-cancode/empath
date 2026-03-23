@@ -11,7 +11,7 @@ const reportSchema = z.object({
   conversationId: z.string().uuid(),
   reportedUserId: z.string().uuid(),
   reason: z.enum(["harassment", "self_harm_encouragement", "sexual_content", "spam_scam", "medical_advice", "illegal_content", "underage_user", "other"]),
-  details: z.string().max(1000).optional(),
+  details: z.string().max(500).optional(),
 });
 
 router.post("/report", async (req, res, next) => {

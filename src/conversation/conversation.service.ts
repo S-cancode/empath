@@ -353,16 +353,24 @@ export async function autoArchiveStaleConversations(staleDays = 7): Promise<numb
   return result.count;
 }
 
-export async function deleteExpiredMessages(retentionDays = 30): Promise<number> {
+export async function deleteExpiredMessages(retentionDays = 7): Promise<number> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - retentionDays);
 
+  // Find conversations with active (unresolved) reports — protect their messages
+  const activeReports = await prisma.report.findMany({
+    where: { status: { in: ["pending", "reviewing"] } },
+    select: { conversationId: true },
+    distinct: ["conversationId" as const],
+  });
+  const protectedIds = activeReports.map((r) => r.conversationId);
+
   const result = await prisma.message.deleteMany({
     where: {
-      conversation: {
-        status: { in: ["archived", "blocked"] },
-        lastMessageAt: { lt: cutoff },
-      },
+      sentAt: { lt: cutoff },
+      ...(protectedIds.length > 0
+        ? { conversationId: { notIn: protectedIds } }
+        : {}),
     },
   });
 

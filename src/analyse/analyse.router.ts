@@ -58,7 +58,9 @@ router.post("/", apiLimiter, authMiddleware, async (req, res, next) => {
       600
     );
 
-    res.json(result);
+    // Strip embedding from client response — it's server-internal
+    const { embedding: _embed, ...clientResult } = result;
+    res.json(clientResult);
   } catch (err) {
     next(err);
   }

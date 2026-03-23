@@ -17,8 +17,7 @@ export function CrisisAlert({ visible, resources, onDismiss }: CrisisAlertProps)
       <View style={styles.container}>
         <Text style={styles.title}>You Are Not Alone</Text>
         <Text style={styles.subtitle}>
-          We noticed you might be going through a difficult time. Please reach
-          out to one of these resources:
+          If you or someone you know is in crisis, please reach out for support:
         </Text>
 
         {resources.map((r, i) => (
@@ -43,11 +42,15 @@ export function CrisisAlert({ visible, resources, onDismiss }: CrisisAlertProps)
           </View>
         ))}
 
+        <Text style={styles.disclaimer}>
+          These are independent services. Empath is not a crisis service.
+        </Text>
+
         <Button
           title="I'm okay, close"
           variant="secondary"
           onPress={onDismiss}
-          style={{ marginTop: 24 }}
+          style={{ marginTop: 16 }}
         />
       </View>
     </Modal>
@@ -82,5 +85,11 @@ const styles = StyleSheet.create({
   resourceName: {
     ...typography.h3,
     color: colors.text,
+  },
+  disclaimer: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    textAlign: "center",
+    marginTop: 20,
   },
 });

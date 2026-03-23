@@ -56,8 +56,9 @@ function formatDateLabel(sentAt: string): string {
 }
 
 export default function ChatScreen() {
-  const { conversationId } = useLocalSearchParams<{
+  const { conversationId, openReport } = useLocalSearchParams<{
     conversationId: string;
+    openReport?: string;
   }>();
   const router = useRouter();
   const userId = useAuthStore((s) => s.user?.id);
@@ -96,6 +97,13 @@ export default function ChatScreen() {
       socket?.emit("push:inactive");
     };
   }, [conversationId, clearUnread, setActiveConversation, socket]);
+
+  // Auto-open report sheet when navigating from post-session screen
+  useEffect(() => {
+    if (openReport === "true") {
+      setReportVisible(true);
+    }
+  }, [openReport]);
 
   const {
     isOnline,
@@ -237,7 +245,7 @@ export default function ChatScreen() {
     if (!conversation) return;
     Alert.alert(
       `Block ${displayName}?`,
-      "You'll never be matched with them again and this conversation will be closed.",
+      "You will never be matched with them again. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -248,7 +256,7 @@ export default function ChatScreen() {
               onSuccess: () => {
                 router.back();
                 setTimeout(() => {
-                  Alert.alert("User blocked");
+                  Alert.alert("User blocked", "You will not be matched with them again.");
                 }, 300);
               },
             });
@@ -327,6 +335,20 @@ export default function ChatScreen() {
                     messageType={item.messageType as "text" | "voice" | undefined}
                     voiceDurationMs={item.voiceDurationMs}
                     waveform={item.waveform as number[] | undefined}
+                    onLongPress={
+                      item.senderId !== userId
+                        ? () => {
+                            Alert.alert(
+                              "Message Options",
+                              undefined,
+                              [
+                                { text: "Report This Message", onPress: () => setReportVisible(true) },
+                                { text: "Cancel", style: "cancel" },
+                              ]
+                            );
+                          }
+                        : undefined
+                    }
                   />
                   {showDate && (
                     <View style={styles.dateSeparator}>
@@ -347,7 +369,7 @@ export default function ChatScreen() {
               messagesExpired ? (
                 <View style={styles.retentionNotice}>
                   <Text style={styles.retentionText}>
-                    Previous messages were automatically removed after 30 days of inactivity.
+                    Previous messages were automatically removed after 7 days.
                   </Text>
                 </View>
               ) : null

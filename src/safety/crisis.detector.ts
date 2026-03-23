@@ -1,15 +1,29 @@
 const CRISIS_KEYWORDS = [
+  // Suicidal ideation
   "suicide",
   "suicidal",
   "kill myself",
   "end my life",
+  "no reason to live",
+  "wish i was dead",
+  // Self-harm
   "self-harm",
   "self harm",
   "cutting myself",
+  "cut myself",
+  "hurt myself",
+  "burn myself",
+  "hitting myself",
+  "slit my wrists",
+  // Immediate danger
   "overdose",
   "hang myself",
   "jump off",
-  "slit my wrists",
+  "standing on the bridge",
+  "have pills",
+  "have a knife",
+  "about to do it",
+  "going to jump",
 ];
 
 const CRISIS_PATTERNS = [

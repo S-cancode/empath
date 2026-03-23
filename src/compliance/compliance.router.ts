@@ -8,6 +8,8 @@ import {
   recordConsent,
   withdrawConsent,
   deleteAccount,
+  submitComplaint,
+  getComplaintsForUser,
 } from "./compliance.service.js";
 
 const router = Router();
@@ -83,6 +85,39 @@ router.post("/consent/withdraw", async (req, res, next) => {
   try {
     await withdrawConsent(req.user!.userId);
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Complaints ---
+
+const complaintSchema = z.object({
+  subject: z.enum(["moderation_decision", "report_handling", "account_issue", "other"]),
+  description: z.string().min(1).max(2000),
+});
+
+router.post("/complaints", async (req, res, next) => {
+  try {
+    const parsed = complaintSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError("Invalid complaint payload");
+    }
+    const result = await submitComplaint(
+      req.user!.userId,
+      parsed.data.subject,
+      parsed.data.description,
+    );
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/complaints", async (req, res, next) => {
+  try {
+    const complaints = await getComplaintsForUser(req.user!.userId);
+    res.json(complaints);
   } catch (err) {
     next(err);
   }

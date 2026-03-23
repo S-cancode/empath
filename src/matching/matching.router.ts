@@ -8,6 +8,9 @@ import { hasValidConsent } from "../compliance/compliance.service.js";
 import { categories } from "../categories/categories.data.js";
 import { getTierLimits } from "../config/tiers.js";
 import { SubscriptionTier } from "../shared/types.js";
+import { generateEmbedding } from "../analyse/embedding.service.js";
+import { stripPII } from "../analyse/pii-stripper.js";
+import { redis } from "../lib/redis.js";
 
 const router = Router();
 
@@ -15,7 +18,6 @@ const joinSchema = z.object({
   category: z.string().optional(),
   subTag: z.string().optional(),
   keywords: z.array(z.string()).max(12).optional(),
-  intensity: z.number().int().min(1).max(5).optional(),
   matchContext: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -56,7 +58,6 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
       throw new ForbiddenError("Sensitive data consent required to use matching. Please enable it in Settings.");
     }
 
-    // Default to "ai-prompt" when no category provided (free-text prompt flow)
     const category = parsed.data.category || "ai-prompt";
 
     // Validate category if it's not ai-prompt
@@ -73,6 +74,28 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
       }
     }
 
+    // Retrieve embedding from analyse:pending (ai-prompt flow)
+    let embedding: number[] | undefined;
+    const pendingKey = `analyse:pending:${req.user!.userId}`;
+    const pendingData = await redis.get(pendingKey);
+
+    if (pendingData) {
+      try {
+        const pending = JSON.parse(pendingData);
+        embedding = pending.analysis?.embedding;
+      } catch {
+        // Non-critical — proceed without cached embedding
+      }
+    }
+
+    // If no embedding from analyse flow (category-based join), generate one from category text
+    if (!embedding) {
+      const categoryName = categories.find((c) => c.id === category)?.name ?? category;
+      const subTagName = parsed.data.subTag ?? "";
+      const fallbackText = stripPII(`I need support with ${categoryName}${subTagName ? `: ${subTagName}` : ""}`);
+      embedding = await generateEmbedding(fallbackText);
+    }
+
     await joinQueue({
       userId: req.user!.userId,
       category,
@@ -80,8 +103,8 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
       tier: req.user!.tier,
       joinedAt: Date.now(),
       keywords: parsed.data.keywords,
-      intensity: parsed.data.intensity,
       matchContext: parsed.data.matchContext,
+      embedding,
     });
 
     const matchStatus = await getDailyMatchStatus(req.user!.userId, tier);
@@ -93,13 +116,8 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
 
 router.delete("/leave", apiLimiter, authMiddleware, async (req, res, next) => {
   try {
-    const category = req.query.category as string;
-    if (!category) {
-      throw new ValidationError("Category is required");
-    }
-
-    await leaveQueue(req.user!.userId, category);
-    res.json({ status: "left", category });
+    await leaveQueue(req.user!.userId);
+    res.json({ status: "left" });
   } catch (err) {
     next(err);
   }

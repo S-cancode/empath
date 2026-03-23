@@ -45,29 +45,45 @@ export async function reportUser(
     throw new ValidationError("Reported user is not your conversation partner");
   }
 
-  // Capture last 10 messages as a snapshot for moderation review
+  // Capture full conversation log for moderation review
   let reportedMessageContent: string | null = null;
+  let conversationLog: { totalMessageCount: number; conversationStartedAt: string; conversationLastMessageAt: string; messages: Array<{ senderId: string; senderAlias: string; content: string; messageType: string; sentAt: string }> } | null = null;
   try {
-    const recentMessages = await prisma.message.findMany({
+    const allMessages = await prisma.message.findMany({
       where: { conversationId },
-      orderBy: { sentAt: "desc" },
-      take: 10,
-      include: { sender: { select: { anonymousAlias: true } } },
+      orderBy: { sentAt: "asc" },
+      include: { sender: { select: { id: true, anonymousAlias: true } } },
     });
-    if (recentMessages.length > 0) {
-      reportedMessageContent = recentMessages
-        .reverse()
-        .map((m) => {
-          let content: string;
-          try {
-            content = m.messageType === "voice"
-              ? "[voice note]"
-              : decrypt({ ciphertext: m.content, iv: m.iv, authTag: m.authTag });
-          } catch {
-            content = "[unable to decrypt]";
-          }
-          return `[${m.sender.anonymousAlias}]: ${content}`;
-        })
+    if (allMessages.length > 0) {
+      const logMessages = allMessages.map((m) => {
+        let content: string;
+        try {
+          content = m.messageType === "voice"
+            ? "[voice note]"
+            : decrypt({ ciphertext: m.content, iv: m.iv, authTag: m.authTag });
+        } catch {
+          content = "[unable to decrypt]";
+        }
+        return {
+          senderId: m.sender.id,
+          senderAlias: m.sender.anonymousAlias,
+          content,
+          messageType: m.messageType,
+          sentAt: m.sentAt.toISOString(),
+        };
+      });
+
+      conversationLog = {
+        totalMessageCount: logMessages.length,
+        conversationStartedAt: logMessages[0].sentAt,
+        conversationLastMessageAt: logMessages[logMessages.length - 1].sentAt,
+        messages: logMessages,
+      };
+
+      // Legacy text snapshot (last 10 messages) for backward compatibility
+      reportedMessageContent = logMessages
+        .slice(-10)
+        .map((m) => `[${m.senderAlias}]: ${m.content}`)
         .join("\n");
     }
   } catch {
@@ -75,7 +91,10 @@ export async function reportUser(
   }
 
   const report = await prisma.report.create({
-    data: { conversationId, reporterId, reportedId, reason, details, reportedMessageContent },
+    data: {
+      conversationId, reporterId, reportedId, reason, details, reportedMessageContent,
+      ...(conversationLog ? { conversationLog } : {}),
+    },
   });
 
   // Auto-block the reported user so they are never matched again
@@ -92,9 +111,20 @@ export async function blockUser(
     throw new ValidationError("Cannot block yourself");
   }
 
+  // Get device IDs for device-level blocking (prevents re-registration bypass)
+  const [blocker, blocked] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { deviceId: true } }),
+    prisma.user.findUnique({ where: { id: blockedUserId }, select: { deviceId: true } }),
+  ]);
+
   await prisma.blockedUser.upsert({
     where: { userId_blockedUserId: { userId, blockedUserId } },
-    create: { userId, blockedUserId },
+    create: {
+      userId,
+      blockedUserId,
+      blockerDeviceId: blocker?.deviceId ?? null,
+      blockedDeviceId: blocked?.deviceId ?? null,
+    },
     update: {},
   });
 
@@ -143,7 +173,8 @@ export async function isBlocked(
   userAId: string,
   userBId: string,
 ): Promise<boolean> {
-  const block = await prisma.blockedUser.findFirst({
+  // Check user-level blocks (both directions)
+  const userBlock = await prisma.blockedUser.findFirst({
     where: {
       OR: [
         { userId: userAId, blockedUserId: userBId },
@@ -151,5 +182,22 @@ export async function isBlocked(
       ],
     },
   });
-  return !!block;
+  if (userBlock) return true;
+
+  // Check device-level blocks (prevents bypass via new accounts on same device)
+  const [userA, userB] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userAId }, select: { deviceId: true } }),
+    prisma.user.findUnique({ where: { id: userBId }, select: { deviceId: true } }),
+  ]);
+  if (!userA || !userB) return false;
+
+  const deviceBlock = await prisma.blockedUser.findFirst({
+    where: {
+      OR: [
+        { blockerDeviceId: userA.deviceId, blockedDeviceId: userB.deviceId },
+        { blockerDeviceId: userB.deviceId, blockedDeviceId: userA.deviceId },
+      ],
+    },
+  });
+  return !!deviceBlock;
 }

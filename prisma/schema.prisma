@@ -7,6 +7,31 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// pgvector extension must be enabled via raw SQL: CREATE EXTENSION IF NOT EXISTS vector;
+model MatchQueueEntry {
+  id           String                    @id @default(uuid())
+  userId       String                    @unique @map("user_id")
+  tier         String
+  joinedAt     DateTime                  @map("joined_at")
+  matchContext Json?                     @map("match_context")
+  embedding    Unsupported("vector(1536)")
+  createdAt    DateTime                  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("match_queue_entries")
+}
+
+/// Anonymised match quality log — no user identifiers
+model MatchQualityLog {
+  id              String   @id @default(uuid())
+  similarityScore Float    @map("similarity_score")
+  categoryA       String   @map("category_a")
+  categoryB       String   @map("category_b")
+  matchedAt       DateTime @default(now()) @map("matched_at")
+
+  @@map("match_quality_logs")
+}
+
 model User {
   id               String   @id @default(uuid())
   anonymousAlias   String   @map("anonymous_alias")
@@ -37,6 +62,7 @@ model User {
   crisisEvents       CrisisEvent[]
   termsAcceptances   TermsAcceptance[]
   consentRecords     ConsentRecord[]
+  complaints         Complaint[]
 
   @@unique([deviceId])
   @@map("users")
@@ -137,6 +163,7 @@ model Report {
   reason                 String
   details                String?
   reportedMessageContent String?  @map("reported_message_content")
+  conversationLog        Json?    @map("conversation_log")
   status                 String   @default("pending")
   reviewedAt             DateTime? @map("reviewed_at")
   resolvedAt             DateTime? @map("resolved_at")
@@ -153,10 +180,12 @@ model Report {
 }
 
 model BlockedUser {
-  id            String   @id @default(uuid())
-  userId        String   @map("user_id")
-  blockedUserId String   @map("blocked_user_id")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  blockedUserId   String   @map("blocked_user_id")
+  blockerDeviceId String?  @map("blocker_device_id")
+  blockedDeviceId String?  @map("blocked_device_id")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   user        User @relation("BlocksInitiated", fields: [userId], references: [id])
   blockedUser User @relation("BlocksReceived", fields: [blockedUserId], references: [id])
@@ -164,6 +193,8 @@ model BlockedUser {
   @@unique([userId, blockedUserId])
   @@index([userId])
   @@index([blockedUserId])
+  @@index([blockerDeviceId])
+  @@index([blockedDeviceId])
   @@map("blocked_users")
 }
 
@@ -181,6 +212,30 @@ model CrisisEvent {
 
   @@index([createdAt])
   @@map("crisis_events")
+}
+
+model TermsVersion {
+  id            String   @id @default(uuid())
+  version       String   @unique
+  content       String
+  effectiveFrom DateTime @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("terms_versions")
+}
+
+model ConsentTextVersion {
+  id            String   @id @default(uuid())
+  version       String   @unique
+  consentType   String   @map("consent_type")
+  content       String
+  textHash      String   @map("text_hash")
+  effectiveFrom DateTime @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("consent_text_versions")
 }
 
 model TermsAcceptance {
@@ -233,4 +288,23 @@ model ModerationAction {
 
   @@index([reportId])
   @@map("moderation_actions")
+}
+
+model Complaint {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  subject       String
+  description   String
+  status        String    @default("open")
+  response      String?
+  respondedAt   DateTime? @map("responded_at")
+  outcome       String?
+  resolvedAt    DateTime? @map("resolved_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("complaints")
 }

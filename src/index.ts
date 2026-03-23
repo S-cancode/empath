@@ -24,6 +24,8 @@ import { prisma } from "./lib/prisma.js";
 import { redis } from "./lib/redis.js";
 import { apiLimiter } from "./shared/rate-limiter.js";
 import { AppError, UpgradeRequiredError } from "./shared/errors.js";
+import { upsertTermsVersion, upsertConsentTextVersion } from "./compliance/compliance.service.js";
+import { TERMS_TEXT_V1_1, CONSENT_TEXT_V1_1 } from "./config/legal-text.js";
 import type { Request, Response, NextFunction } from "express";
 
 const app = express();
@@ -86,8 +88,16 @@ startAutoArchiveWorker();
 startRetentionWorker();
 startPushListener();
 
-httpServer.listen(config.PORT, () => {
+httpServer.listen(config.PORT, async () => {
   console.log(`Empath server running on port ${config.PORT}`);
+
+  // Seed current legal text versions for audit trail
+  try {
+    await upsertTermsVersion("1.1", TERMS_TEXT_V1_1, new Date("2026-03-01"));
+    await upsertConsentTextVersion("1.1", "sensitive_data", CONSENT_TEXT_V1_1, new Date("2026-03-01"));
+  } catch (err) {
+    console.error("Failed to seed text versions:", err);
+  }
 });
 
 // Graceful shutdown

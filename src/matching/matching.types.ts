@@ -5,8 +5,8 @@ export interface MatchRequest {
   tier: string;
   joinedAt: number;
   keywords?: string[];
-  intensity?: number;
   matchContext?: Record<string, unknown>;
+  embedding?: number[];
 }
 
 export interface MatchResult {

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from "react-native";
+import React, { useState, useCallback } from "react";
+import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity, type NativeSyntheticEvent, type NativeScrollEvent, type LayoutChangeEvent } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createHash } from "@/lib/hash";
@@ -30,6 +30,14 @@ export default function ConsentScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [declined, setDeclined] = useState(false);
+  const [scrolledToBottom, setScrolledToBottom] = useState(false);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (scrolledToBottom) return;
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const isAtBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 40;
+    if (isAtBottom) setScrolledToBottom(true);
+  }, [scrolledToBottom]);
 
   const handleConsent = async (granted: boolean) => {
     setLoading(true);
@@ -82,6 +90,8 @@ export default function ConsentScreen() {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
+        onScroll={handleScroll}
+        scrollEventThrottle={100}
       >
         <Text style={styles.title}>Before you write your first message</Text>
 
@@ -98,7 +108,8 @@ export default function ConsentScreen() {
           title="I consent to this processing"
           onPress={() => handleConsent(true)}
           loading={loading}
-          style={{ marginTop: 32 }}
+          disabled={!scrolledToBottom}
+          style={{ marginTop: 32, opacity: scrolledToBottom ? 1 : 0.5 }}
         />
 
         <TouchableOpacity

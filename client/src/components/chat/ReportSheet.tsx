@@ -97,7 +97,7 @@ export function ReportSheet({
               value={details}
               onChangeText={setDetails}
               multiline
-              maxLength={1000}
+              maxLength={500}
             />
           )}
 

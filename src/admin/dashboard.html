@@ -235,8 +235,12 @@
       '</div>';
 
     // Messages
-    if (data.messages.length) {
-      html += '<div class="detail-section"><h3>Conversation Messages (last 50)</h3><div class="messages-list">';
+    if (data.messagesSource === 'unavailable') {
+      html += '<div class="detail-section"><h3>Conversation Messages</h3>' +
+        '<div class="reported-content" style="background:#fff3e0;border-color:#ffcc80">' + esc(data.messagesNote || 'No messages available.') + '</div></div>';
+    } else if (data.messages.length) {
+      const srcLabel = data.messagesSource === 'report_log' ? 'Conversation Log (from report)' : 'Conversation Messages (live)';
+      html += '<div class="detail-section"><h3>' + srcLabel + ' (' + data.messages.length + ' messages)</h3><div class="messages-list">';
       data.messages.forEach(m => {
         const isReported = m.senderId === r.reportedId;
         if (m.messageType === 'voice') {
