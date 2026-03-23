@@ -3,10 +3,12 @@ import { verifyAccessToken } from "../auth/auth.service.js";
 import { bufferMessage, endLiveSession, extendLiveSession, startLiveSession } from "./chat.service.js";
 import { sendAsyncMessage, sendVoiceNote, markDelivered, markRead } from "../conversation/conversation.service.js";
 import { setOnline, setOffline, isOnline, getPartnerIdsForUser } from "../presence/presence.service.js";
-import { emitNotification } from "../notifications/notification.service.js";
+import { emitNotification, notificationBus } from "../notifications/notification.service.js";
+import type { NotificationEvent } from "../notifications/notification.service.js";
 import { setActiveConversation } from "../notifications/push.service.js";
 import { detectCrisis } from "../safety/crisis.detector.js";
 import { crisisResources } from "../safety/crisis.resources.js";
+import { acceptProposal, declineProposal } from "../matching/matching.service.js";
 import { getTierLimits } from "../config/tiers.js";
 import { SubscriptionTier } from "../shared/types.js";
 import { prisma } from "../lib/prisma.js";
@@ -126,6 +128,9 @@ export function setupChatGateway(io: Server): void {
   io.on("connection", async (socket: Socket) => {
     const userId = socket.data.userId as string;
     const userTier = socket.data.tier as string;
+
+    // Join user-specific room for notifications (match proposals, etc.)
+    socket.join(`user:${userId}`);
 
     // Register presence
     await setOnline(userId, socket.id);
@@ -415,6 +420,22 @@ export function setupChatGateway(io: Server): void {
       });
     });
 
+    // --- Match proposal accept/decline ---
+
+    socket.on("match:accept", async (data: { proposalId: string }) => {
+      const result = await acceptProposal(data.proposalId, userId);
+      if (result.status === "matched" && result.conversationId) {
+        // Both accepted — notify via rooms
+        io.to(`user:${userId}`).emit("match:confirmed", {
+          conversationId: result.conversationId,
+        });
+      }
+    });
+
+    socket.on("match:decline", async (data: { proposalId: string }) => {
+      await declineProposal(data.proposalId, userId);
+    });
+
     // --- Push notification active conversation tracking ---
 
     socket.on("push:active", async (data: { conversationId: string }) => {
@@ -457,5 +478,16 @@ export function setupChatGateway(io: Server): void {
         }
       }
     });
+  });
+
+  // Listen for match proposal/confirmation notifications and route via Socket.IO user rooms
+  notificationBus.on("notification", (event: NotificationEvent) => {
+    if (event.type === "match_proposed") {
+      io.to(`user:${event.recipientId}`).emit("match:proposed", event.payload);
+    } else if (event.type === "match_confirmed") {
+      io.to(`user:${event.recipientId}`).emit("match:confirmed", event.payload);
+    } else if (event.type === "match_declined") {
+      io.to(`user:${event.recipientId}`).emit("match:declined", event.payload);
+    }
   });
 }

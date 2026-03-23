@@ -13,6 +13,12 @@ interface OptimisticMessage {
   isOptimistic: boolean;
 }
 
+export interface MatchProposal {
+  proposalId: string;
+  partnerSummary: string;
+  partnerCategory: string;
+}
+
 interface ConversationsState {
   optimisticMessages: Record<string, OptimisticMessage[]>;
   presence: Record<string, boolean>;
@@ -20,6 +26,8 @@ interface ConversationsState {
   unreadCounts: Record<string, number>;
   nicknames: Record<string, string>;
   activeConversationId: string | null;
+  matchProposal: MatchProposal | null;
+  isSearching: boolean;
 
   addOptimisticMessage: (msg: OptimisticMessage) => void;
   confirmMessage: (
@@ -36,6 +44,8 @@ interface ConversationsState {
   setActiveConversation: (conversationId: string | null) => void;
   setNickname: (conversationId: string, name: string) => void;
   loadNicknames: () => Promise<void>;
+  setMatchProposal: (proposal: MatchProposal | null) => void;
+  setIsSearching: (searching: boolean) => void;
 }
 
 export const useConversationsStore = create<ConversationsState>((set, get) => ({
@@ -45,6 +55,8 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   unreadCounts: {},
   nicknames: {},
   activeConversationId: null,
+  matchProposal: null,
+  isSearching: false,
 
   addOptimisticMessage: (msg) =>
     set((state) => ({
@@ -132,4 +144,7 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
       if (raw) set({ nicknames: JSON.parse(raw) });
     } catch {}
   },
+
+  setMatchProposal: (proposal) => set({ matchProposal: proposal }),
+  setIsSearching: (searching) => set({ isSearching: searching }),
 }));

@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import { View, ScrollView, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity, Keyboard } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
+import { useConversationsStore } from "@/stores/conversations.store";
 import { useCategories } from "@/hooks/queries/useCategories";
 import { useMatchStatus } from "@/hooks/queries/useMatchStatus";
 import { useJoinMatch } from "@/hooks/mutations/useJoinMatch";
@@ -35,6 +36,7 @@ export default function HomeScreen() {
       return;
     }
 
+    Keyboard.dismiss();
     analyseText.mutate(promptText, {
       onSuccess: (result) => {
         router.push({
@@ -44,6 +46,9 @@ export default function HomeScreen() {
       },
     });
   };
+
+  const isSearching = useConversationsStore((s) => s.isSearching);
+  const setIsSearching = useConversationsStore((s) => s.setIsSearching);
 
   const handleFindMatch = (category: string, subTag?: string) => {
     if (matchStatus && matchStatus.limit > 0 && matchStatus.remaining <= 0) {
@@ -57,7 +62,7 @@ export default function HomeScreen() {
       {
         onSuccess: () => {
           setSelectedCategory(null);
-          router.push(`/(app)/queue/${category}`);
+          setIsSearching(true);
         },
       }
     );
@@ -70,7 +75,16 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
+        {isSearching && (
+          <View style={styles.searchingBanner}>
+            <Text style={styles.searchingText}>
+              Searching for your match... We'll let you know when we find someone.
+            </Text>
+          </View>
+        )}
+
         <MatchCounter status={matchStatus} />
 
         <PromptInput
@@ -159,6 +173,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.error,
     textAlign: "center",
+  },
+  searchingBanner: {
+    backgroundColor: colors.primary + "15",
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary + "30",
+  },
+  searchingText: {
+    ...typography.bodySmall,
+    color: colors.primary,
+    textAlign: "center",
+    fontFamily: "Inter_500Medium",
   },
   browseToggle: {
     flexDirection: "row",

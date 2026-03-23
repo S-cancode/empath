@@ -11,6 +11,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "@/theme/colors";
 import { useJoinMatch } from "@/hooks/mutations/useJoinMatch";
+import { useConversationsStore } from "@/stores/conversations.store";
 import { AppBackground } from "@/components/ui/AppBackground";
 import type { AnalyseResult } from "@/types/api";
 
@@ -18,6 +19,7 @@ export default function ConfirmScreen() {
   const router = useRouter();
   const { analysis } = useLocalSearchParams<{ analysis: string }>();
   const joinMatch = useJoinMatch();
+  const setIsSearching = useConversationsStore((s) => s.setIsSearching);
 
   const result: AnalyseResult | null = useMemo(() => {
     try {
@@ -37,12 +39,12 @@ export default function ConfirmScreen() {
       {
         category: "ai-prompt",
         keywords: result.keywords,
-        intensity: result.intensity,
         matchContext: result as unknown as Record<string, unknown>,
       },
       {
         onSuccess: () => {
-          router.replace("/(app)/queue/ai-prompt");
+          setIsSearching(true);
+          router.replace("/(app)/(tabs)/inbox");
         },
       }
     );
@@ -62,16 +64,6 @@ export default function ConfirmScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryText}>{result.summary}</Text>
         </View>
-
-        {result.keywords.length > 0 && (
-          <View style={styles.keywordsRow}>
-            {result.keywords.map((kw) => (
-              <View key={kw} style={styles.keywordChip}>
-                <Text style={styles.keywordText}>{kw}</Text>
-              </View>
-            ))}
-          </View>
-        )}
 
         <Text style={styles.matchNote}>
           We'll find someone who understands what you're going through.
@@ -142,26 +134,6 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     color: colors.text,
     textAlign: "center",
-  },
-  keywordsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 6,
-    marginBottom: 20,
-  },
-  keywordChip: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  keywordText: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: colors.textSecondary,
   },
   matchNote: {
     fontSize: 14,

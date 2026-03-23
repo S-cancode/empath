@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useSocket } from "@/providers/SocketProvider";
-import { useConversationsStore } from "@/stores/conversations.store";
+import { useConversationsStore, type MatchProposal } from "@/stores/conversations.store";
 import { useAuthStore } from "@/stores/auth.store";
 import { useConversations } from "@/hooks/queries/useConversations";
 import { queryClient } from "@/providers/QueryProvider";
@@ -13,7 +13,7 @@ import { queryKeys } from "@/lib/query-keys";
 export function useGlobalMessageListener() {
   const { socket } = useSocket();
   const userId = useAuthStore((s) => s.user?.id);
-  const { incrementUnread } = useConversationsStore();
+  const { incrementUnread, setMatchProposal, setIsSearching } = useConversationsStore();
   const { data: conversations } = useConversations();
 
   // Join all conversation rooms so we receive messages from any screen
@@ -76,4 +76,39 @@ export function useGlobalMessageListener() {
       socket.off("conversation:message" as any, handler);
     };
   }, [socket, userId, incrementUnread]);
+
+  // Listen for match proposals
+  useEffect(() => {
+    if (!socket) return;
+
+    const proposalHandler = (data: {
+      proposalId: string;
+      partnerSummary: string;
+      partnerCategory: string;
+    }) => {
+      setIsSearching(false);
+      setMatchProposal(data);
+    };
+
+    const confirmedHandler = (data: { conversationId: string }) => {
+      setMatchProposal(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+    };
+
+    const declinedHandler = () => {
+      // Partner declined — back to searching
+      setMatchProposal(null);
+      setIsSearching(true);
+    };
+
+    socket.on("match:proposed" as any, proposalHandler);
+    socket.on("match:confirmed" as any, confirmedHandler);
+    socket.on("match:declined" as any, declinedHandler);
+
+    return () => {
+      socket.off("match:proposed" as any, proposalHandler);
+      socket.off("match:confirmed" as any, confirmedHandler);
+      socket.off("match:declined" as any, declinedHandler);
+    };
+  }, [socket, setMatchProposal, setIsSearching]);
 }

@@ -1,5 +1,5 @@
 import React from "react";
-import { FlatList, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { CategoryCard } from "./CategoryCard";
 import type { Category } from "@/types/api";
 
@@ -13,23 +13,22 @@ export function CategoryGrid({
   onSelectCategory,
 }: CategoryGridProps) {
   return (
-    <FlatList
-      data={categories}
-      keyExtractor={(item) => item.id}
-      numColumns={2}
-      contentContainerStyle={styles.grid}
-      renderItem={({ item }) => (
+    <View style={styles.grid}>
+      {categories.map((item) => (
         <CategoryCard
+          key={item.id}
           category={item}
           onPress={() => onSelectCategory(item)}
         />
-      )}
-    />
+      ))}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     padding: 10,
   },
 });

@@ -42,7 +42,6 @@ export interface AnalyseResult {
   primaryCategory: string;
   secondaryCategory?: string;
   subTags: string[];
-  intensity: number;
   keywords: string[];
   summary: string;
 }
@@ -51,7 +50,6 @@ export interface JoinMatchPayload {
   category: string;
   subTag?: string;
   keywords?: string[];
-  intensity?: number;
   matchContext?: Record<string, unknown>;
 }
 

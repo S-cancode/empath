@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, TextInput, Alert } from "react-native";
+import React, { useState, useRef } from "react";
+import { View, Text, StyleSheet, TextInput, Alert, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "@/theme/colors";
@@ -15,6 +15,8 @@ export default function AgeGateScreen() {
   const [year, setYear] = useState("");
   const [loading, setLoading] = useState(false);
   const [rejected, setRejected] = useState(false);
+  const monthRef = useRef<TextInput>(null);
+  const yearRef = useRef<TextInput>(null);
 
   const isValid =
     day.length > 0 &&
@@ -71,63 +73,82 @@ export default function AgeGateScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <AppBackground />
-      <View style={styles.content}>
-        <Text style={styles.title}>Confirm Your Age</Text>
-        <Text style={styles.body}>
-          You must be 18 or older to use Empath. Please enter your date of
-          birth.
-        </Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <AppBackground />
+        <View style={styles.content}>
+          <Text style={styles.title}>Confirm Your Age</Text>
+          <Text style={styles.body}>
+            You must be 18 or older to use Empath. Please enter your date of
+            birth.
+          </Text>
 
-        <View style={styles.inputRow}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Day</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="DD"
-              placeholderTextColor={colors.textTertiary}
-              value={day}
-              onChangeText={(t) => setDay(t.replace(/[^0-9]/g, "").slice(0, 2))}
-              keyboardType="number-pad"
-              maxLength={2}
-            />
+          <View style={styles.inputRow}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Day</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="DD"
+                placeholderTextColor={colors.textTertiary}
+                value={day}
+                onChangeText={(t) => {
+                  const v = t.replace(/[^0-9]/g, "").slice(0, 2);
+                  setDay(v);
+                  if (v.length === 2) monthRef.current?.focus();
+                }}
+                keyboardType="number-pad"
+                maxLength={2}
+                returnKeyType="next"
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Month</Text>
+              <TextInput
+                ref={monthRef}
+                style={styles.input}
+                placeholder="MM"
+                placeholderTextColor={colors.textTertiary}
+                value={month}
+                onChangeText={(t) => {
+                  const v = t.replace(/[^0-9]/g, "").slice(0, 2);
+                  setMonth(v);
+                  if (v.length === 2) yearRef.current?.focus();
+                }}
+                keyboardType="number-pad"
+                maxLength={2}
+                returnKeyType="next"
+              />
+            </View>
+            <View style={styles.inputGroupWide}>
+              <Text style={styles.label}>Year</Text>
+              <TextInput
+                ref={yearRef}
+                style={styles.input}
+                placeholder="YYYY"
+                placeholderTextColor={colors.textTertiary}
+                value={year}
+                onChangeText={(t) => setYear(t.replace(/[^0-9]/g, "").slice(0, 4))}
+                keyboardType="number-pad"
+                maxLength={4}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
+              />
+            </View>
           </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Month</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="MM"
-              placeholderTextColor={colors.textTertiary}
-              value={month}
-              onChangeText={(t) => setMonth(t.replace(/[^0-9]/g, "").slice(0, 2))}
-              keyboardType="number-pad"
-              maxLength={2}
-            />
-          </View>
-          <View style={styles.inputGroupWide}>
-            <Text style={styles.label}>Year</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="YYYY"
-              placeholderTextColor={colors.textTertiary}
-              value={year}
-              onChangeText={(t) => setYear(t.replace(/[^0-9]/g, "").slice(0, 4))}
-              keyboardType="number-pad"
-              maxLength={4}
-            />
-          </View>
+
+          <Button
+            title="Continue"
+            onPress={handleConfirm}
+            loading={loading}
+            disabled={!isValid}
+            style={{ marginTop: 24 }}
+          />
         </View>
-
-        <Button
-          title="Continue"
-          onPress={handleConfirm}
-          loading={loading}
-          disabled={!isValid}
-          style={{ marginTop: 24 }}
-        />
-      </View>
-    </View>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 

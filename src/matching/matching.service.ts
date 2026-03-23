@@ -153,6 +153,10 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
   const candidates = members.map((m) => JSON.parse(m) as MatchRequest);
   const anchor = candidates[0];
 
+  // Skip if anchor already has a pending proposal
+  const anchorPending = await redis.get(`match:pending:${anchor.userId}`);
+  if (anchorPending) return null;
+
   // Query pgvector for cosine similarities against anchor
   const similarities = await prisma.$queryRawUnsafe<
     Array<{ user_id: string; similarity: number }>
@@ -198,72 +202,195 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
   // Remove both from Redis queue
   await redis.zrem(GLOBAL_QUEUE_KEY, members[0], members[bestMatch.memberIndex]);
 
-  // Remove both from Postgres
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
-    anchor.userId,
-    matched.userId,
-  );
-
-  // Record recent match
-  await markRecentlyMatched(anchor.userId, matched.userId);
-
-  // Increment daily counters
-  await incrementDailyMatchCount(anchor.userId);
-  await incrementDailyMatchCount(matched.userId);
-
-  // Build match context
-  const matchContext = buildMatchContext(anchor, matched);
+  // Build proposal instead of creating conversation directly
+  // Note: do NOT remove from queue, increment daily counts, or mark as recent
+  // until both users accept the proposal. This happens in acceptProposal().
   const ctxA = anchor.matchContext as Record<string, unknown> | undefined;
   const ctxB = matched.matchContext as Record<string, unknown> | undefined;
   const displayCategory = (ctxA?.primaryCategory || ctxB?.primaryCategory || "identity") as string;
 
-  // Create conversation
-  const conversation = await prisma.conversation.create({
-    data: {
-      userAId: anchor.userId,
-      userBId: matched.userId,
-      category: displayCategory,
-      subTag: anchor.subTag || matched.subTag || null,
-      matchContext: (matchContext ?? undefined) as Prisma.InputJsonValue | undefined,
-    },
-  });
-
-  // Log anonymised match quality (no user identifiers)
-  await prisma.matchQualityLog.create({
-    data: {
-      similarityScore: bestMatch.similarity,
-      categoryA: displayCategory,
-      categoryB: (ctxB?.primaryCategory || ctxA?.primaryCategory || "identity") as string,
-    },
-  });
-
-  // Clean up encrypted raw text from Redis
-  await redis.del(`${ANALYSE_PENDING_PREFIX}${anchor.userId}`);
-  await redis.del(`${ANALYSE_PENDING_PREFIX}${matched.userId}`);
-
-  const result: MatchResult = {
-    conversationId: conversation.id,
+  const proposalId = `proposal:${Date.now()}:${anchor.userId.slice(0, 8)}`;
+  const proposal = {
+    proposalId,
     userAId: anchor.userId,
     userBId: matched.userId,
     category: displayCategory,
-    subTag: conversation.subTag ?? undefined,
+    subTag: anchor.subTag || matched.subTag || null,
+    similarity: bestMatch.similarity,
+    userASummary: (ctxA?.summary as string) || "Someone going through a similar experience.",
+    userBSummary: (ctxB?.summary as string) || "Someone going through a similar experience.",
+    userACategory: (ctxA?.primaryCategory as string) || displayCategory,
+    userBCategory: (ctxB?.primaryCategory as string) || displayCategory,
+    matchContextA: ctxA ? { summary: ctxA.summary, keywords: ctxA.keywords } : undefined,
+    matchContextB: ctxB ? { summary: ctxB.summary, keywords: ctxB.keywords } : undefined,
+    userAAccepted: false,
+    userBAccepted: false,
+    createdAt: Date.now(),
   };
 
+  // Store proposal in Redis with 5-minute TTL
+  await redis.set(
+    `match:proposal:${proposalId}`,
+    JSON.stringify(proposal),
+    "EX",
+    300,
+  );
+
+  // Mark both users as having a pending proposal (prevents re-matching)
+  await redis.set(`match:pending:${anchor.userId}`, proposalId, "EX", 300);
+  await redis.set(`match:pending:${matched.userId}`, proposalId, "EX", 300);
+
+  // Notify both users about the proposal
   emitNotification({
-    type: "new_match",
+    type: "match_proposed",
     recipientId: anchor.userId,
-    payload: { conversationId: conversation.id, category: displayCategory, partnerId: matched.userId },
+    payload: {
+      proposalId,
+      partnerSummary: proposal.userBSummary,
+      partnerCategory: proposal.userBCategory,
+    },
     createdAt: new Date(),
   });
   emitNotification({
-    type: "new_match",
+    type: "match_proposed",
     recipientId: matched.userId,
-    payload: { conversationId: conversation.id, category: displayCategory, partnerId: anchor.userId },
+    payload: {
+      proposalId,
+      partnerSummary: proposal.userASummary,
+      partnerCategory: proposal.userACategory,
+    },
     createdAt: new Date(),
   });
 
-  return result;
+  return {
+    conversationId: proposalId, // temporary — actual conversation created on accept
+    userAId: anchor.userId,
+    userBId: matched.userId,
+    category: displayCategory,
+    subTag: proposal.subTag ?? undefined,
+  };
+}
+
+// --- Match proposal accept/decline ---
+
+export async function acceptProposal(
+  proposalId: string,
+  userId: string,
+): Promise<{ status: "waiting" | "matched"; conversationId?: string }> {
+  const raw = await redis.get(`match:proposal:${proposalId}`);
+  if (!raw) return { status: "waiting" }; // expired
+
+  const proposal = JSON.parse(raw);
+  const isUserA = proposal.userAId === userId;
+  const isUserB = proposal.userBId === userId;
+  if (!isUserA && !isUserB) return { status: "waiting" };
+
+  if (isUserA) proposal.userAAccepted = true;
+  if (isUserB) proposal.userBAccepted = true;
+
+  if (proposal.userAAccepted && proposal.userBAccepted) {
+    // Both accepted — create conversation
+    await redis.del(`match:proposal:${proposalId}`);
+    await redis.del(`match:pending:${proposal.userAId}`);
+    await redis.del(`match:pending:${proposal.userBId}`);
+
+    const matchContext = {
+      userA: proposal.matchContextA,
+      userB: proposal.matchContextB,
+    };
+
+    const conversation = await prisma.conversation.create({
+      data: {
+        userAId: proposal.userAId,
+        userBId: proposal.userBId,
+        category: proposal.category,
+        subTag: proposal.subTag,
+        matchContext: matchContext as Prisma.InputJsonValue,
+      },
+    });
+
+    // Log anonymised match quality
+    await prisma.matchQualityLog.create({
+      data: {
+        similarityScore: proposal.similarity,
+        categoryA: proposal.userACategory,
+        categoryB: proposal.userBCategory,
+      },
+    });
+
+    // Increment daily counters
+    await incrementDailyMatchCount(proposal.userAId);
+    await incrementDailyMatchCount(proposal.userBId);
+
+    // Record recent match
+    await markRecentlyMatched(proposal.userAId, proposal.userBId);
+
+    // Clean up encrypted raw text
+    await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userAId}`);
+    await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userBId}`);
+
+    // Remove from match queue
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
+      proposal.userAId,
+      proposal.userBId,
+    );
+
+    // Notify both
+    emitNotification({
+      type: "match_confirmed",
+      recipientId: proposal.userAId,
+      payload: { conversationId: conversation.id, partnerId: proposal.userBId },
+      createdAt: new Date(),
+    });
+    emitNotification({
+      type: "match_confirmed",
+      recipientId: proposal.userBId,
+      payload: { conversationId: conversation.id, partnerId: proposal.userAId },
+      createdAt: new Date(),
+    });
+
+    return { status: "matched", conversationId: conversation.id };
+  }
+
+  // Only one accepted so far — update and wait
+  await redis.set(
+    `match:proposal:${proposalId}`,
+    JSON.stringify(proposal),
+    "EX",
+    300,
+  );
+  return { status: "waiting" };
+}
+
+export async function declineProposal(
+  proposalId: string,
+  userId: string,
+): Promise<void> {
+  const raw = await redis.get(`match:proposal:${proposalId}`);
+  if (!raw) return; // expired
+
+  const proposal = JSON.parse(raw);
+  await redis.del(`match:proposal:${proposalId}`);
+  await redis.del(`match:pending:${proposal.userAId}`);
+  await redis.del(`match:pending:${proposal.userBId}`);
+
+  // The other user goes back into the queue (they stay in Redis + Postgres already)
+  // The declining user's queue entry is removed
+  const decliningIsA = proposal.userAId === userId;
+  const decliningUserId = decliningIsA ? proposal.userAId : proposal.userBId;
+  const otherUserId = decliningIsA ? proposal.userBId : proposal.userAId;
+
+  // Remove declining user from queue
+  await leaveQueue(decliningUserId);
+
+  // Notify the other user that the match was declined
+  emitNotification({
+    type: "match_declined",
+    recipientId: otherUserId,
+    payload: { proposalId },
+    createdAt: new Date(),
+  });
 }
 
 // --- Stale entry cleanup ---

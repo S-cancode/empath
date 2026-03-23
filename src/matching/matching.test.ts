@@ -124,7 +124,7 @@ describe("matching.service", () => {
     expect(await getQueueSize()).toBe(0);
   });
 
-  it("matches two users via cosine similarity", async () => {
+  it("proposes a match between two users via cosine similarity", async () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
     await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
 
@@ -133,7 +133,7 @@ describe("matching.service", () => {
 
     const result = await tryMatchGlobal();
     expect(result).not.toBeNull();
-    expect(result!.conversationId).toBe("conversation-1");
+    expect(result!.conversationId).toContain("proposal:");
     expect(result!.userAId).toBe("user-1");
     expect(result!.userBId).toBe("user-2");
   });
@@ -172,7 +172,7 @@ describe("matching.service", () => {
     expect(result!.userAId).toBe("user-premium");
   });
 
-  it("increments daily match count after matching", async () => {
+  it("does not increment daily match count on proposal (only on accept)", async () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
     await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
 
@@ -180,10 +180,11 @@ describe("matching.service", () => {
 
     await tryMatchGlobal();
 
+    // Counts should still be 0 — incremented only when both users accept
     const count1 = await getDailyMatchCount("user-1");
     const count2 = await getDailyMatchCount("user-2");
-    expect(count1).toBe(1);
-    expect(count2).toBe(1);
+    expect(count1).toBe(0);
+    expect(count2).toBe(0);
   });
 
   it("returns correct daily match status for free tier", async () => {
