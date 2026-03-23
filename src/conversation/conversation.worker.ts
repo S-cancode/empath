@@ -1,4 +1,10 @@
 import { autoArchiveStaleConversations, deleteExpiredMessages } from "./conversation.service.js";
+import {
+  deleteExpiredCrisisEvents,
+  deleteExpiredReports,
+  deleteExpiredTermsRecords,
+  deleteExpiredConsentRecords,
+} from "../compliance/compliance.service.js";
 
 const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -29,15 +35,25 @@ export function stopAutoArchiveWorker(): void {
 }
 
 export function startRetentionWorker(): void {
-  console.log("Message retention worker started");
+  console.log("Retention worker started");
   retentionTimer = setInterval(async () => {
     try {
-      const count = await deleteExpiredMessages(30);
-      if (count > 0) {
-        console.log(`Deleted ${count} expired messages`);
-      }
+      const msgCount = await deleteExpiredMessages(30);
+      if (msgCount > 0) console.log(`Deleted ${msgCount} expired messages`);
+
+      const crisisCount = await deleteExpiredCrisisEvents();
+      if (crisisCount > 0) console.log(`Deleted ${crisisCount} expired crisis events`);
+
+      const reportCount = await deleteExpiredReports();
+      if (reportCount > 0) console.log(`Deleted ${reportCount} expired reports`);
+
+      const termsCount = await deleteExpiredTermsRecords();
+      if (termsCount > 0) console.log(`Deleted ${termsCount} expired terms records`);
+
+      const consentCount = await deleteExpiredConsentRecords();
+      if (consentCount > 0) console.log(`Deleted ${consentCount} expired consent records`);
     } catch (err) {
-      console.error("Message retention worker error:", err);
+      console.error("Retention worker error:", err);
     }
   }, RETENTION_INTERVAL_MS);
 }
@@ -47,5 +63,5 @@ export function stopRetentionWorker(): void {
     clearInterval(retentionTimer);
     retentionTimer = null;
   }
-  console.log("Message retention worker stopped");
+  console.log("Retention worker stopped");
 }

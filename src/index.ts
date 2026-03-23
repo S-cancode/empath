@@ -27,18 +27,15 @@ import { AppError, UpgradeRequiredError } from "./shared/errors.js";
 import type { Request, Response, NextFunction } from "express";
 
 const app = express();
+app.set("trust proxy", 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: { origin: config.NODE_ENV === "production" ? false : "*", methods: ["GET", "POST"] },
   maxHttpBufferSize: 3e6, // 3MB for voice notes
 });
 
 // Middleware
-const helmetMiddleware = helmet();
-app.use((req, res, next) => {
-  if (req.originalUrl.startsWith("/admin")) return next();
-  helmetMiddleware(req, res, next);
-});
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(apiLimiter);
@@ -108,5 +105,15 @@ async function shutdown(): Promise<void> {
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+
+process.on("uncaughtException", (err) => {
+  console.error("FATAL uncaughtException:", err);
+  shutdown();
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("FATAL unhandledRejection:", reason);
+  shutdown();
+});
 
 export { app, httpServer, io };

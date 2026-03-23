@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Sympathy",
-    "slug": "sympathy",
-    "scheme": "sympathy",
+    "name": "Empath",
+    "slug": "empath",
+    "scheme": "empath",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

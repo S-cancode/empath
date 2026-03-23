@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const NICKNAMES_KEY = "sympathy:nicknames";
+const NICKNAMES_KEY = "empath:nicknames";
 
 interface OptimisticMessage {
   id: string;

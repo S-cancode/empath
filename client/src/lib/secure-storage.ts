@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 
-const ACCESS_TOKEN_KEY = "sympathy_access_token";
-const REFRESH_TOKEN_KEY = "sympathy_refresh_token";
+const ACCESS_TOKEN_KEY = "empath_access_token";
+const REFRESH_TOKEN_KEY = "empath_refresh_token";
 
 export async function getAccessToken(): Promise<string | null> {
   return SecureStore.getItemAsync(ACCESS_TOKEN_KEY);

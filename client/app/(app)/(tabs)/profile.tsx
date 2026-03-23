@@ -92,7 +92,7 @@ export default function ProfileScreen() {
   };
 
   const handleComplaints = () => {
-    Linking.openURL("mailto:complaints@sympathy.app?subject=Complaint");
+    Linking.openURL("mailto:complaints@empath.app?subject=Complaint");
   };
 
   return (

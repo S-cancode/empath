@@ -109,6 +109,8 @@ model Message {
 
   @@index([conversationId])
   @@index([conversationId, sentAt])
+  @@index([senderId])
+  @@index([deliveryStatus])
   @@map("messages")
 }
 
@@ -145,6 +147,8 @@ model Report {
   reported          User               @relation("ReportsReceived", fields: [reportedId], references: [id])
   moderationActions ModerationAction[]
 
+  @@index([reportedId])
+  @@index([status])
   @@map("reports")
 }
 
@@ -175,6 +179,7 @@ model CrisisEvent {
   user         User          @relation(fields: [userId], references: [id])
   conversation Conversation? @relation(fields: [conversationId], references: [id])
 
+  @@index([createdAt])
   @@map("crisis_events")
 }
 

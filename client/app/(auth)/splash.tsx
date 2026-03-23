@@ -62,7 +62,7 @@ export default function SplashScreen() {
   return (
     <View style={styles.container}>
       <AppBackground />
-      <Text style={styles.title}>Sympathy</Text>
+      <Text style={styles.title}>Empath</Text>
       <Text style={styles.subtitle}>Anonymous peer support</Text>
 
       {loading && <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32 }} />}

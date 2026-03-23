@@ -3,7 +3,7 @@ import * as Application from "expo-application";
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 
-const DEVICE_ID_KEY = "sympathy_device_id";
+const DEVICE_ID_KEY = "empath_device_id";
 
 export async function getDeviceId(): Promise<string> {
   // Try platform-specific stable IDs first

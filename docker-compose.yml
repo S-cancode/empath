@@ -4,13 +4,13 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: sympathy
-      POSTGRES_PASSWORD: sympathy_dev
-      POSTGRES_DB: sympathy
+      POSTGRES_USER: empath
+      POSTGRES_PASSWORD: empath_dev
+      POSTGRES_DB: empath
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sympathy"]
+      test: ["CMD-SHELL", "pg_isready -U empath"]
       interval: 5s
       timeout: 5s
       retries: 5

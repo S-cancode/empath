@@ -151,6 +151,71 @@ export async function hasValidConsent(userId: string): Promise<boolean> {
   return user?.sensitiveDataConsent ?? false;
 }
 
+// --- Retention cleanup functions (called by retention worker) ---
+
+/** Delete crisis events older than 12 months */
+export async function deleteExpiredCrisisEvents(): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 12);
+
+  const result = await prisma.crisisEvent.deleteMany({
+    where: { createdAt: { lt: cutoff } },
+  });
+  return result.count;
+}
+
+/** Delete resolved reports older than 12 months from resolution */
+export async function deleteExpiredReports(): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 12);
+
+  // First delete moderation actions for expired reports
+  await prisma.moderationAction.deleteMany({
+    where: {
+      report: {
+        resolvedAt: { not: null, lt: cutoff },
+      },
+    },
+  });
+
+  const result = await prisma.report.deleteMany({
+    where: {
+      resolvedAt: { not: null, lt: cutoff },
+    },
+  });
+  return result.count;
+}
+
+/** Delete terms acceptance records 2 years after account deletion */
+export async function deleteExpiredTermsRecords(): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 2);
+
+  const result = await prisma.termsAcceptance.deleteMany({
+    where: {
+      user: {
+        deletedAt: { not: null, lt: cutoff },
+      },
+    },
+  });
+  return result.count;
+}
+
+/** Delete consent records 6 years after account deletion */
+export async function deleteExpiredConsentRecords(): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 6);
+
+  const result = await prisma.consentRecord.deleteMany({
+    where: {
+      user: {
+        deletedAt: { not: null, lt: cutoff },
+      },
+    },
+  });
+  return result.count;
+}
+
 export async function deleteAccount(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new NotFoundError("User not found");

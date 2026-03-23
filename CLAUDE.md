@@ -1,4 +1,4 @@
-# Sympathy
+# Empath
 
 Anonymous peer-to-peer emotional support platform. Users are matched by shared life challenges and communicate through async messaging and optional timed live sessions.
 

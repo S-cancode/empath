@@ -13,7 +13,7 @@ const categoryList = categories
   )
   .join("\n");
 
-const SYSTEM_PROMPT = `You are a compassionate emotional support assistant for the Sympathy app.
+const SYSTEM_PROMPT = `You are a compassionate emotional support assistant for the Empath app.
 A user has shared what is weighing on them. Your job is to:
 
 1. Identify which of these support categories best fits their situation:

@@ -31,7 +31,7 @@ const slides: OnboardingSlide[] = [
     iconColor: "#E57373",
     title: "You're not alone",
     subtitle:
-      "Sympathy connects you with someone who truly understands what you're going through — anonymously and safely.",
+      "Empath connects you with someone who truly understands what you're going through — anonymously and safely.",
   },
   {
     id: "2",

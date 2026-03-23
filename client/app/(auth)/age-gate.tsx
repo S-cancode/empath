@@ -61,7 +61,7 @@ export default function AgeGateScreen() {
         <View style={styles.content}>
           <Text style={styles.title}>Unable to Continue</Text>
           <Text style={styles.body}>
-            You must be 18 or older to use Sympathy. This service involves
+            You must be 18 or older to use Empath. This service involves
             conversations about life challenges and is not suitable for
             under-18s.
           </Text>
@@ -76,7 +76,7 @@ export default function AgeGateScreen() {
       <View style={styles.content}>
         <Text style={styles.title}>Confirm Your Age</Text>
         <Text style={styles.body}>
-          You must be 18 or older to use Sympathy. Please enter your date of
+          You must be 18 or older to use Empath. Please enter your date of
           birth.
         </Text>
 

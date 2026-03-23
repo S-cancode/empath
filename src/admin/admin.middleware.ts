@@ -8,12 +8,9 @@ export function adminAuth(req: Request, _res: Response, next: NextFunction): voi
     throw new AuthError("Admin access not configured");
   }
 
-  const headerToken = req.headers.authorization?.startsWith("Bearer ")
+  const token = req.headers.authorization?.startsWith("Bearer ")
     ? req.headers.authorization.slice(7)
     : null;
-  const queryToken = req.query.token as string | undefined;
-
-  const token = headerToken ?? queryToken;
   if (!token || token !== secret) {
     throw new AuthError("Invalid admin credentials");
   }
