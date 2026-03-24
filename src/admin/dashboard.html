@@ -24,6 +24,8 @@
   .badge-pending { background: #fff3cd; color: #856404; }
   .badge-resolved { background: #d4edda; color: #155724; }
   .badge-reviewed { background: #cce5ff; color: #004085; }
+  .badge-highest { background: #ffcdd2; color: #b71c1c; font-weight: 700; }
+  .badge-standard { background: #e0e0e0; color: #555; }
 
   /* Detail panel */
   .detail-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 100; }
@@ -92,6 +94,7 @@
   <table id="reports-table">
     <thead>
       <tr>
+        <th>Priority</th>
         <th>Date</th>
         <th>Reporter</th>
         <th>Reported</th>
@@ -156,13 +159,14 @@
     const tbody = document.getElementById('reports-body');
 
     if (!data.reports || !data.reports.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty">No reports found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No reports found</td></tr>';
       document.getElementById('pagination').innerHTML = '';
       return;
     }
 
     tbody.innerHTML = data.reports.map(r =>
       '<tr data-id="' + r.id + '">' +
+        '<td><span class="badge ' + (r.priority === 'highest' ? 'badge-highest' : 'badge-standard') + '">' + (r.priority === 'highest' ? '🔴 URGENT' : 'Standard') + '</span></td>' +
         '<td>' + formatDate(r.createdAt) + '</td>' +
         '<td>' + esc(r.reporter.anonymousAlias) + '</td>' +
         '<td>' + esc(r.reported.anonymousAlias) + '</td>' +
@@ -268,6 +272,13 @@
 
     // Action buttons (only if pending)
     if (r.status === 'pending') {
+      html += '<div class="detail-section"><h3>Severity Assessment</h3>' +
+        '<select id="severity-select" style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;margin-bottom:12px">' +
+        '<option value="">Select severity...</option>' +
+        '<option value="low">Low — minor guideline breach, first offence, no intent to harm</option>' +
+        '<option value="medium">Medium — clear breach, pattern or content that could cause distress</option>' +
+        '<option value="high">High — serious breach, potential criminal offence, risk of significant harm</option>' +
+        '</select></div>';
       html += '<div class="detail-section"><h3>Take Action</h3><div class="actions">' +
         '<button class="action-btn btn-dismiss" onclick="window.__modAction(\'' + r.id + '\',\'dismiss\')">Dismiss</button>' +
         '<button class="action-btn btn-warn" onclick="window.__modAction(\'' + r.id + '\',\'warn\')">Warn</button>' +
@@ -291,12 +302,21 @@
     document.getElementById('detail-overlay').classList.remove('open');
   };
 
+  // Get moderator name on first action (cached per session)
+  let _modName = null;
+  function getModeratorId() {
+    if (!_modName) _modName = prompt('Your name (for audit trail):') || 'admin';
+    return _modName;
+  }
+
   window.__modAction = async function(id, action) {
     if (action === 'ban' && !confirm('Are you sure you want to permanently ban this user?')) return;
     const reason = prompt('Reason for this action (optional):');
+    const moderatorId = getModeratorId();
+    const severity = document.getElementById('severity-select')?.value || null;
     await api('/reports/' + id + '/action', {
       method: 'POST',
-      body: JSON.stringify({ action, reason }),
+      body: JSON.stringify({ action, reason, moderatorId, severity }),
     });
     window.__modClose();
     loadReports();
@@ -312,9 +332,10 @@
     const reason = document.getElementById('suspend-reason').value;
     if (!days || days < 1) { alert('Enter a valid number of days'); return; }
     if (!confirm('Suspend this user for ' + days + ' days?')) return;
+    const moderatorId = getModeratorId();
     await api('/reports/' + id + '/action', {
       method: 'POST',
-      body: JSON.stringify({ action: 'suspend', reason, duration: days }),
+      body: JSON.stringify({ action: 'suspend', reason, duration: days, moderatorId }),
     });
     window.__modClose();
     loadReports();

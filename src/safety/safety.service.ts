@@ -90,9 +90,14 @@ export async function reportUser(
     // Non-critical — proceed without snapshot
   }
 
+  // Auto-classify priority: highest for self-harm, illegal, underage
+  const HIGHEST_PRIORITY_REASONS = ["self_harm_encouragement", "illegal_content", "underage_user"];
+  const priority = HIGHEST_PRIORITY_REASONS.includes(reason) ? "highest" : "standard";
+
   const report = await prisma.report.create({
     data: {
       conversationId, reporterId, reportedId, reason, details, reportedMessageContent,
+      priority,
       ...(conversationLog ? { conversationLog } : {}),
     },
   });

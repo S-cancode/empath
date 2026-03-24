@@ -9,6 +9,12 @@ export interface CrisisResource {
 
 export const crisisResources: CrisisResource[] = [
   {
+    name: "Emergency Services",
+    phone: "999",
+    description: "Call 999 if you or someone else is in immediate danger",
+    country: "UK",
+  },
+  {
     name: "Samaritans",
     phone: "116 123",
     url: "https://www.samaritans.org",
@@ -42,5 +48,30 @@ export const crisisResources: CrisisResource[] = [
     url: "https://www.crisistextline.org",
     description: "Free 24/7 text-based crisis support",
     country: "US",
+  },
+];
+
+/** Resources shown when a user is identified as potentially under 18 */
+export const childrenResources: CrisisResource[] = [
+  {
+    name: "Childline",
+    phone: "0800 1111",
+    url: "https://www.childline.org.uk",
+    description: "Free, confidential support for anyone under 19",
+    country: "UK",
+  },
+  {
+    name: "YoungMinds",
+    phone: "Text YM to 85258",
+    url: "https://www.youngminds.org.uk",
+    description: "Mental health support for young people",
+    country: "UK",
+  },
+  {
+    name: "The Mix",
+    phone: "0808 808 4994",
+    url: "https://www.themix.org.uk",
+    description: "Support for under 25s on any challenge",
+    country: "UK",
   },
 ];

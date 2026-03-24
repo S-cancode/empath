@@ -33,8 +33,8 @@ adminRouter.get("/reports/:id", async (req: Request, res: Response) => {
 
 // Take action on report
 adminRouter.post("/reports/:id/action", async (req: Request, res: Response) => {
-  const { action, reason, duration } = req.body;
-  const result = await takeAction(req.params.id as string, "admin", { action, reason, duration });
+  const { action, reason, duration, moderatorId, severity } = req.body;
+  const result = await takeAction(req.params.id as string, moderatorId || "admin", { action, severity, reason, duration });
   res.json(result);
 });
 

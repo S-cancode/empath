@@ -164,6 +164,7 @@ model Report {
   details                String?
   reportedMessageContent String?  @map("reported_message_content")
   conversationLog        Json?    @map("conversation_log")
+  priority               String   @default("standard") // "highest" or "standard"
   status                 String   @default("pending")
   reviewedAt             DateTime? @map("reviewed_at")
   resolvedAt             DateTime? @map("resolved_at")
@@ -280,6 +281,7 @@ model ModerationAction {
   reportId    String   @map("report_id")
   moderatorId String   @map("moderator_id")
   action      String
+  severity    String?  // low, medium, high
   reason      String?
   duration    Int?
   createdAt   DateTime @default(now()) @map("created_at")

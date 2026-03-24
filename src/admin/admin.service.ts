@@ -2,11 +2,38 @@ import { prisma } from "../lib/prisma.js";
 import { decrypt } from "../lib/crypto.js";
 import { NotFoundError, ValidationError } from "../shared/errors.js";
 
+const COMPLAINTS_EMAIL = "empath21@outlook.com";
+
+/** Send moderation notification to a user via push notification */
+async function notifyUser(userId: string, title: string, body: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { pushToken: true },
+  });
+  if (!user?.pushToken) return;
+  try {
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        to: user.pushToken,
+        title,
+        body,
+        data: { screen: "home", type: "moderation" },
+        sound: "default",
+      }),
+    });
+  } catch (err) {
+    console.error("[moderation] Failed to send notification:", err);
+  }
+}
+
 const VALID_ACTIONS = ["dismiss", "warn", "suspend", "ban", "escalate"] as const;
 type ModerationActionType = (typeof VALID_ACTIONS)[number];
 
 interface TakeActionInput {
   action: ModerationActionType;
+  severity?: string;
   reason?: string;
   duration?: number;
 }
@@ -127,6 +154,7 @@ export async function takeAction(
       reportId,
       moderatorId,
       action: input.action,
+      severity: input.severity,
       reason: input.reason,
       duration: input.duration,
     },
@@ -142,8 +170,18 @@ export async function takeAction(
     },
   });
 
-  // Apply action to reported user
+  // Apply action to reported user and send notifications
+  const reasonDesc = input.reason || "a violation of our Community Guidelines";
+
   switch (input.action) {
+    case "warn": {
+      await notifyUser(
+        report.reportedId,
+        "Community Guidelines Reminder",
+        `Your recent activity was flagged for ${reasonDesc}. Please review our Community Guidelines. If you believe this is incorrect, contact ${COMPLAINTS_EMAIL}.`
+      );
+      break;
+    }
     case "suspend": {
       const suspendUntil = new Date();
       suspendUntil.setDate(suspendUntil.getDate() + input.duration!);
@@ -151,9 +189,20 @@ export async function takeAction(
         where: { id: report.reportedId },
         data: { suspendedUntil: suspendUntil },
       });
+      const liftDate = suspendUntil.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+      await notifyUser(
+        report.reportedId,
+        "Account Suspended",
+        `Your account has been temporarily suspended for ${input.duration} day(s) due to ${reasonDesc}. Your suspension will be lifted on ${liftDate}. If you believe this is incorrect, contact ${COMPLAINTS_EMAIL}.`
+      );
       break;
     }
     case "ban": {
+      await notifyUser(
+        report.reportedId,
+        "Account Permanently Removed",
+        `Your account has been permanently removed due to serious violations of our Community Guidelines. If you believe this is incorrect, contact ${COMPLAINTS_EMAIL}.`
+      );
       await prisma.user.update({
         where: { id: report.reportedId },
         data: { banned: true },
@@ -172,6 +221,13 @@ export async function takeAction(
       break;
     }
   }
+
+  // Notify reporter that their report has been reviewed (generic, no specifics)
+  await notifyUser(
+    report.reporterId,
+    "Report Reviewed",
+    "We have reviewed your report and taken appropriate action. Thank you for helping keep Empath safe."
+  );
 
   return moderationAction;
 }
