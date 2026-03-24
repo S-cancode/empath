@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   FlatList,
   Dimensions,
@@ -84,6 +85,11 @@ export default function OnboardingScreen() {
   return (
     <View style={styles.container}>
       <AppBackground />
+      <Image
+        source={require("../../assets/empath-logo-text.jpg")}
+        style={styles.logo}
+        resizeMode="contain"
+      />
       <FlatList
         ref={flatListRef}
         data={slides}
@@ -143,6 +149,13 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  logo: {
+    width: 200,
+    height: 62,
+    alignSelf: "center",
+    marginTop: 60,
+    marginBottom: 8,
   },
   slide: {
     width,

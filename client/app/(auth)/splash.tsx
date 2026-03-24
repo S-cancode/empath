@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, Image, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "@/theme/colors";
@@ -62,7 +62,11 @@ export default function SplashScreen() {
   return (
     <View style={styles.container}>
       <AppBackground />
-      <Text style={styles.title}>Empath</Text>
+      <Image
+        source={require("../../assets/empath-logo-text.jpg")}
+        style={styles.logo}
+        resizeMode="contain"
+      />
       <Text style={styles.subtitle}>Anonymous peer support</Text>
 
       {loading && <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32 }} />}
@@ -84,10 +88,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 24,
   },
-  title: {
-    ...typography.h1,
-    color: colors.primary,
-    fontSize: 36,
+  logo: {
+    width: 260,
+    height: 80,
+    marginBottom: 4,
   },
   subtitle: {
     ...typography.body,
