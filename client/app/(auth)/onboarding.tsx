@@ -86,7 +86,7 @@ export default function OnboardingScreen() {
     <View style={styles.container}>
       <AppBackground />
       <Image
-        source={require("../../assets/empath-logo-text.jpg")}
+        source={require("../../assets/empath-logo-text.png")}
         style={styles.logo}
         resizeMode="contain"
       />
