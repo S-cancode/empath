@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ export default function ConfirmScreen() {
   const { analysis } = useLocalSearchParams<{ analysis: string }>();
   const joinMatch = useJoinMatch();
   const setIsSearching = useConversationsStore((s) => s.setIsSearching);
+  const [searching, setSearching] = useState(false);
 
   const result: AnalyseResult | null = useMemo(() => {
     try {
@@ -44,11 +45,37 @@ export default function ConfirmScreen() {
       {
         onSuccess: () => {
           setIsSearching(true);
-          router.replace("/(app)/(tabs)/inbox");
+          setSearching(true);
         },
       }
     );
   };
+
+  const handleDismiss = () => {
+    router.replace("/(app)/(tabs)");
+  };
+
+  if (searching) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <AppBackground />
+        <View style={styles.searchingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: 24 }} />
+          <Text style={styles.searchingHeading}>Finding your match</Text>
+          <Text style={styles.searchingSubtext}>
+            We're looking for someone who understands what you're going through. We'll notify you as soon as we find a match.
+          </Text>
+          <TouchableOpacity
+            style={styles.dismissButton}
+            onPress={handleDismiss}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.dismissButtonText}>Got it</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -98,6 +125,38 @@ export default function ConfirmScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  searchingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+  },
+  searchingHeading: {
+    fontSize: 24,
+    fontFamily: "Inter_700Bold",
+    color: colors.primary,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  searchingSubtext: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  dismissButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 25,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+  },
+  dismissButtonText: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    color: colors.textInverse,
   },
   content: {
     flexGrow: 1,

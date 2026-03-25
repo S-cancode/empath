@@ -26,12 +26,9 @@ export default function AppLayout() {
     useConversationsStore.getState().loadNicknames();
   }, []);
 
-  const handleAccept = () => {
-    if (!socket || !matchProposal) return;
-    setAccepting(true);
-    socket.emit("match:accept" as any, { proposalId: matchProposal.proposalId });
-
-    // Listen for confirmation (both accepted)
+  // Listen globally for match:confirmed — partner can accept at any time
+  useEffect(() => {
+    if (!socket) return;
     const handler = (data: { conversationId: string }) => {
       setAccepting(false);
       setMatchProposal(null);
@@ -39,13 +36,20 @@ export default function AppLayout() {
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       router.push(`/(app)/chat/${data.conversationId}`);
     };
-    socket.once("match:confirmed" as any, handler);
+    socket.on("match:confirmed" as any, handler);
+    return () => { socket.off("match:confirmed" as any, handler); };
+  }, [socket]);
 
-    // Timeout after 30s if partner hasn't accepted yet
+  const handleAccept = () => {
+    if (!socket || !matchProposal) return;
+    setAccepting(true);
+    socket.emit("match:accept" as any, { proposalId: matchProposal.proposalId });
+
+    // Brief delay then dismiss modal — we've let the other user know
     setTimeout(() => {
-      socket.off("match:confirmed" as any, handler);
       setAccepting(false);
-    }, 30000);
+      setMatchProposal(null);
+    }, 1500);
   };
 
   const handleDecline = () => {

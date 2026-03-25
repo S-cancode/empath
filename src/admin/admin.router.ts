@@ -17,7 +17,7 @@ adminRouter.get("/", (_req: Request, res: Response) => {
 
 // List reports
 adminRouter.get("/reports", async (req: Request, res: Response) => {
-  const status = req.query.status as string | undefined;
+  const status = (req.query.status as string | undefined) || undefined;
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
 

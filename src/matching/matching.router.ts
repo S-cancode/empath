@@ -114,6 +114,25 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
   }
 });
 
+router.get("/queue-status", apiLimiter, authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user!.userId;
+    const pending = await redis.get(`match:pending:${userId}`);
+    if (pending) {
+      res.json({ inQueue: true });
+      return;
+    }
+    const members = await redis.zrange("match:queue:global", 0, -1);
+    const inQueue = members.some((m) => {
+      const parsed = JSON.parse(m);
+      return parsed.userId === userId;
+    });
+    res.json({ inQueue });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.delete("/leave", apiLimiter, authMiddleware, async (req, res, next) => {
   try {
     await leaveQueue(req.user!.userId);

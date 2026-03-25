@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Modal } from "react-native";
+import { View, Text, StyleSheet, Modal, ActivityIndicator } from "react-native";
 import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +21,22 @@ export function MatchProposalModal({
   onDecline,
   loading,
 }: MatchProposalModalProps) {
+  if (loading) {
+    return (
+      <Modal visible={visible} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.card}>
+            <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: 16 }} />
+            <Text style={styles.title}>Letting them know</Text>
+            <Text style={styles.note}>
+              We've told your match you'd like to connect. You'll be notified when they accept.
+            </Text>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
@@ -44,14 +60,12 @@ export function MatchProposalModal({
             <Button
               title="Start chatting"
               onPress={onAccept}
-              loading={loading}
               style={{ flex: 1 }}
             />
             <Button
               title="Skip"
               variant="outline"
               onPress={onDecline}
-              disabled={loading}
               style={{ flex: 1 }}
             />
           </View>

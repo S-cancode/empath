@@ -114,14 +114,14 @@
 
 <script>
 (function() {
-  const token = new URLSearchParams(location.search).get('token') || '';
+  const token = new URLSearchParams(location.search).get('secret') || '';
   const baseUrl = location.pathname.replace(/\/$/, '');
   let currentStatus = '';
   let currentPage = 1;
 
   function api(path, opts = {}) {
     const sep = path.includes('?') ? '&' : '?';
-    const url = baseUrl + path + sep + 'token=' + encodeURIComponent(token);
+    const url = baseUrl + path + sep + 'secret=' + encodeURIComponent(token);
     return fetch(url, {
       headers: { 'Content-Type': 'application/json' },
       ...opts,

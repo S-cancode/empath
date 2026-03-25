@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Modal, Linking } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Modal, Linking } from "react-native";
 import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +14,7 @@ interface CrisisAlertProps {
 export function CrisisAlert({ visible, resources, onDismiss }: CrisisAlertProps) {
   return (
     <Modal visible={visible} animationType="fade">
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>You Are Not Alone</Text>
         <Text style={styles.subtitle}>
           If you or someone you know is in crisis, please reach out for support:
@@ -52,14 +52,14 @@ export function CrisisAlert({ visible, resources, onDismiss }: CrisisAlertProps)
           onPress={onDismiss}
           style={{ marginTop: 16 }}
         />
-      </View>
+      </ScrollView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: colors.surface,
     padding: 24,
     justifyContent: "center",

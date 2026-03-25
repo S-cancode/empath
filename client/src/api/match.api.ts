@@ -19,3 +19,8 @@ export async function joinMatch(payload: JoinMatchPayload): Promise<JoinMatchRes
 export async function leaveMatch(category: string): Promise<void> {
   await apiClient.delete("/match/leave", { params: { category } });
 }
+
+export async function getQueueStatus(): Promise<{ inQueue: boolean }> {
+  const { data } = await apiClient.get<{ inQueue: boolean }>("/match/queue-status");
+  return data;
+}

@@ -10,7 +10,7 @@ export function adminAuth(req: Request, _res: Response, next: NextFunction): voi
 
   const token = req.headers.authorization?.startsWith("Bearer ")
     ? req.headers.authorization.slice(7)
-    : null;
+    : (req.query.secret as string | undefined) ?? null;
   if (!token || token !== secret) {
     throw new AuthError("Invalid admin credentials");
   }
