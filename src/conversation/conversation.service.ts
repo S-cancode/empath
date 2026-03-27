@@ -8,6 +8,27 @@ import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError } 
 import { SubscriptionTier } from "../shared/types.js";
 
 const RECONNECT_REQUEST_PREFIX = "reconnect:";
+const NICKNAME_PREFIX = "nickname:";
+
+export async function setNickname(
+  conversationId: string,
+  userId: string,
+  nickname: string | null,
+): Promise<void> {
+  const key = `${NICKNAME_PREFIX}${conversationId}:${userId}`;
+  if (nickname) {
+    await redis.set(key, nickname);
+  } else {
+    await redis.del(key);
+  }
+}
+
+export async function getNickname(
+  conversationId: string,
+  userId: string,
+): Promise<string | null> {
+  return redis.get(`${NICKNAME_PREFIX}${conversationId}:${userId}`);
+}
 const RECONNECT_REQUEST_TTL = 7 * 24 * 60 * 60;
 
 export async function getConversationsForUser(userId: string) {
@@ -125,6 +146,7 @@ export async function sendVoiceNote(
       conversationId,
       messageId: message.id,
       senderId,
+      messageType: "voice",
       online: recipientOnline,
     },
     createdAt: new Date(),
@@ -171,6 +193,8 @@ export async function sendAsyncMessage(
       conversationId,
       messageId: message.id,
       senderId,
+      messageContent: plaintext,
+      messageType: "text",
       online: recipientOnline,
     },
     createdAt: new Date(),

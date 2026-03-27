@@ -1,6 +1,7 @@
 import { notificationBus, type NotificationEvent } from "./notification.service.js";
 import { prisma } from "../lib/prisma.js";
 import { redis } from "../lib/redis.js";
+import { getNickname } from "../conversation/conversation.service.js";
 
 const ACTIVE_PREFIX = "push:active:";
 
@@ -114,15 +115,26 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
 
     case "new_message": {
       const senderId = payload.senderId as string;
+      const messageContent = payload.messageContent as string | undefined;
+      const messageType = payload.messageType as string | undefined;
       const sender = await prisma.user.findUnique({
         where: { id: senderId },
         select: { anonymousAlias: true },
       });
+      const alias = sender?.anonymousAlias ?? "Someone";
+      // Check if recipient set a nickname for this sender in this conversation
+      const nickname = conversationId
+        ? await getNickname(conversationId, recipientId)
+        : null;
+      const senderName = nickname || alias;
+      const body = messageType === "voice"
+        ? "Sent you a voice note"
+        : messageContent ?? "Sent you a message";
       await sendExpoPush(
         token,
-        sender?.anonymousAlias ?? "Someone",
-        "Sent you a message",
-        pushData
+        senderName,
+        body,
+        { ...pushData, senderAlias: senderName, conversationId },
       );
       break;
     }

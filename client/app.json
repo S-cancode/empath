@@ -15,7 +15,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shivandongha.empath",
-      "buildNumber": "1"
+      "buildNumber": "2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -37,7 +40,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "171c364d-bb91-4706-8f35-5ad88d30fd1a"
+        "projectId": "a16ef8c7-5c6a-4c61-afb9-1942717c9fe8"
       }
     },
     "owner": "shivandongha"

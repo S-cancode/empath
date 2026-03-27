@@ -12,18 +12,24 @@
       }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://empath-production.up.railway.app"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://empath-production.up.railway.app"
+      }
     }
   },
   "submit": {
     "production": {
       "ios": {
         "appleId": "shivandongha@icloud.com",
-        "ascAppId": "",
-        "appleTeamId": ""
+        "ascAppId": "6761266499",
+        "appleTeamId": "9H8P5P3S2N"
       }
     }
   }

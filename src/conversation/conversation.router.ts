@@ -101,6 +101,25 @@ router.post("/:id/reconnect", requireTier(SubscriptionTier.PREMIUM), async (req,
   }
 });
 
+// Set nickname for partner in a conversation (synced for push notifications)
+const nicknameSchema = z.object({
+  nickname: z.string().max(30).optional(),
+});
+
+router.put("/:id/nickname", async (req, res, next) => {
+  try {
+    const parsed = nicknameSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError("Nickname must be 30 characters or less");
+    }
+    const { setNickname } = await import("./conversation.service.js");
+    await setNickname(req.params.id, req.user!.userId, parsed.data.nickname ?? null);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Voice notes — available to all tiers, handled primarily via Socket.IO
 router.post("/:id/voice-note", async (_req, res) => {
   res.status(200).json({ message: "Use Socket.IO conversation:voice-note event for voice notes" });

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { apiClient } from "@/api/client";
 
 const NICKNAMES_KEY = "empath:nicknames";
 
@@ -136,6 +137,10 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
       AsyncStorage.setItem(NICKNAMES_KEY, JSON.stringify(updated));
       return { nicknames: updated };
     });
+    // Sync nickname to server for push notifications
+    apiClient
+      .put(`/conversations/${conversationId}/nickname`, { nickname: name || null })
+      .catch(() => {});
   },
 
   loadNicknames: async () => {
