@@ -146,7 +146,18 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   loadNicknames: async () => {
     try {
       const raw = await AsyncStorage.getItem(NICKNAMES_KEY);
-      if (raw) set({ nicknames: JSON.parse(raw) });
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, string>;
+        set({ nicknames: parsed });
+        // Sync all existing nicknames to server for push notifications
+        for (const [convId, name] of Object.entries(parsed)) {
+          if (name) {
+            apiClient
+              .put(`/conversations/${convId}/nickname`, { nickname: name })
+              .catch(() => {});
+          }
+        }
+      }
     } catch {}
   },
 
