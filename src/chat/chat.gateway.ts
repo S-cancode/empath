@@ -9,6 +9,7 @@ import { setActiveConversation } from "../notifications/push.service.js";
 import { detectCrisis } from "../safety/crisis.detector.js";
 import { crisisResources } from "../safety/crisis.resources.js";
 import { acceptProposal, declineProposal } from "../matching/matching.service.js";
+import { redis } from "../lib/redis.js";
 import { getTierLimits } from "../config/tiers.js";
 import { SubscriptionTier } from "../shared/types.js";
 import { prisma } from "../lib/prisma.js";
@@ -134,6 +135,25 @@ export function setupChatGateway(io: Server): void {
 
     // Register presence
     await setOnline(userId, socket.id);
+
+    // Check for pending match proposal and re-send if one exists
+    try {
+      const proposalId = await redis.get(`match:pending:${userId}`);
+      if (proposalId) {
+        const proposalData = await redis.get(`match:proposal:${proposalId}`);
+        if (proposalData) {
+          const proposal = JSON.parse(proposalData);
+          const isUserA = proposal.userAId === userId;
+          socket.emit("match:proposed", {
+            proposalId,
+            partnerSummary: isUserA ? proposal.userBSummary : proposal.userASummary,
+            partnerCategory: isUserA ? proposal.userBCategory : proposal.userACategory,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to check pending proposal on connect:", err);
+    }
 
     // Notify partners that this user is online
     const partnerIds = await getPartnerIdsForUser(userId);
