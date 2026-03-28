@@ -126,6 +126,7 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
       const nickname = conversationId
         ? await getNickname(conversationId, recipientId)
         : null;
+      console.log(`[push] Nickname lookup: conv=${conversationId} recipient=${recipientId} nickname=${nickname} alias=${alias}`);
       const senderName = nickname || alias;
       const body = messageType === "voice"
         ? "Sent you a voice note"

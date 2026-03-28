@@ -113,9 +113,12 @@ router.put("/:id/nickname", async (req, res, next) => {
       throw new ValidationError("Nickname must be 30 characters or less");
     }
     const { setNickname } = await import("./conversation.service.js");
-    await setNickname(req.params.id, req.user!.userId, parsed.data.nickname ?? null);
+    const nickname = parsed.data.nickname ?? null;
+    console.log(`[nickname] Setting nickname for conv=${req.params.id} user=${req.user!.userId} nickname=${nickname}`);
+    await setNickname(req.params.id, req.user!.userId, nickname);
     res.json({ ok: true });
   } catch (err) {
+    console.error("[nickname] Error:", err);
     next(err);
   }
 });
