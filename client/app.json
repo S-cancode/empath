@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shivandongha.empath",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -35,7 +35,8 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-updates"
     ],
     "extra": {
       "router": {},
@@ -43,6 +44,12 @@
         "projectId": "a16ef8c7-5c6a-4c61-afb9-1942717c9fe8"
       }
     },
-    "owner": "shivandongha"
+    "owner": "shivandongha",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a16ef8c7-5c6a-4c61-afb9-1942717c9fe8"
+    }
   }
 }
