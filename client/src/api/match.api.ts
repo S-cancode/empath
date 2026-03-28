@@ -20,7 +20,16 @@ export async function leaveMatch(category: string): Promise<void> {
   await apiClient.delete("/match/leave", { params: { category } });
 }
 
-export async function getQueueStatus(): Promise<{ inQueue: boolean }> {
-  const { data } = await apiClient.get<{ inQueue: boolean }>("/match/queue-status");
+export interface QueueStatus {
+  inQueue: boolean;
+  pendingProposal?: {
+    proposalId: string;
+    partnerSummary: string;
+    partnerCategory: string;
+  };
+}
+
+export async function getQueueStatus(): Promise<QueueStatus> {
+  const { data } = await apiClient.get<QueueStatus>("/match/queue-status");
   return data;
 }

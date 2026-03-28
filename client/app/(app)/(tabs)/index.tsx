@@ -25,9 +25,16 @@ export default function HomeScreen() {
   const [promptText, setPromptText] = useState("");
   const [showUpgrade, setShowUpgrade] = useState(false);
 
+  const setMatchProposal = useConversationsStore((s) => s.setMatchProposal);
+
   useEffect(() => {
     getQueueStatus()
-      .then((res) => setIsSearching(res.inQueue))
+      .then((res) => {
+        setIsSearching(res.inQueue);
+        if (res.pendingProposal) {
+          setMatchProposal(res.pendingProposal);
+        }
+      })
       .catch(() => {});
   }, []);
 
