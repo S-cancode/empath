@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { adminAuth } from "./admin.middleware.js";
 import { getReports, getReportDetail, takeAction, getDashboardStats } from "./admin.service.js";
+import { redis } from "../lib/redis.js";
 import type { Request, Response } from "express";
 
 export const adminRouter = Router();
@@ -42,4 +43,13 @@ adminRouter.post("/reports/:id/action", async (req: Request, res: Response) => {
 adminRouter.get("/stats", async (_req: Request, res: Response) => {
   const stats = await getDashboardStats();
   res.json(stats);
+});
+
+// Clear recent-match blocks (for testing)
+adminRouter.delete("/recent-matches", async (_req: Request, res: Response) => {
+  const keys = await redis.keys("recent-match:*");
+  if (keys.length > 0) {
+    await redis.del(...keys);
+  }
+  res.json({ cleared: keys.length });
 });
