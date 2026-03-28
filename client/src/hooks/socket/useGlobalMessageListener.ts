@@ -1,10 +1,12 @@
 import { useEffect } from "react";
+import { AppState } from "react-native";
 import { useSocket } from "@/providers/SocketProvider";
 import { useConversationsStore, type MatchProposal } from "@/stores/conversations.store";
 import { useAuthStore } from "@/stores/auth.store";
 import { useConversations } from "@/hooks/queries/useConversations";
 import { queryClient } from "@/providers/QueryProvider";
 import { queryKeys } from "@/lib/query-keys";
+import { apiClient } from "@/api/client";
 
 /**
  * Global listener that joins all conversation rooms on socket connect
@@ -76,6 +78,31 @@ export function useGlobalMessageListener() {
       socket.off("conversation:message" as any, handler);
     };
   }, [socket, userId, incrementUnread]);
+
+  // Check for pending proposals on socket connect and app foreground
+  useEffect(() => {
+    if (!socket) return;
+
+    const checkPendingProposal = async () => {
+      try {
+        const { data } = await apiClient.get("/match/queue-status");
+        if (data.pendingProposal) {
+          setIsSearching(false);
+          setMatchProposal(data.pendingProposal);
+        }
+      } catch {}
+    };
+
+    // Check on socket connect (covers reconnects)
+    checkPendingProposal();
+
+    // Check when app comes to foreground
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") checkPendingProposal();
+    });
+
+    return () => subscription.remove();
+  }, [socket, setMatchProposal, setIsSearching]);
 
   // Listen for match proposals
   useEffect(() => {

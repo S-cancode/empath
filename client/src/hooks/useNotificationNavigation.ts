@@ -1,10 +1,18 @@
 import { useEffect } from "react";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
+import { useConversationsStore } from "@/stores/conversations.store";
 
 function handleNotificationData(data: Record<string, unknown> | undefined) {
   if (data?.screen === "chat" && data?.conversationId) {
     router.push(`/(app)/chat/${data.conversationId}`);
+  } else if (data?.screen === "match" && data?.proposalId) {
+    // Show the match proposal modal by setting state
+    useConversationsStore.getState().setMatchProposal({
+      proposalId: data.proposalId as string,
+      partnerSummary: (data.partnerSummary as string) ?? "Someone going through a similar experience.",
+      partnerCategory: (data.partnerCategory as string) ?? "",
+    });
   }
 }
 

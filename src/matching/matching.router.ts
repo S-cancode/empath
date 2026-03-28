@@ -117,10 +117,23 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
 router.get("/queue-status", apiLimiter, authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user!.userId;
-    const pending = await redis.get(`match:pending:${userId}`);
-    if (pending) {
-      res.json({ inQueue: true });
-      return;
+    const proposalId = await redis.get(`match:pending:${userId}`);
+    if (proposalId) {
+      // Return proposal details so the client can show the modal
+      const proposalData = await redis.get(`match:proposal:${proposalId}`);
+      if (proposalData) {
+        const proposal = JSON.parse(proposalData);
+        const isUserA = proposal.userAId === userId;
+        res.json({
+          inQueue: true,
+          pendingProposal: {
+            proposalId,
+            partnerSummary: isUserA ? proposal.userBSummary : proposal.userASummary,
+            partnerCategory: isUserA ? proposal.userBCategory : proposal.userACategory,
+          },
+        });
+        return;
+      }
     }
     const members = await redis.zrange("match:queue:global", 0, -1);
     const inQueue = members.some((m) => {
