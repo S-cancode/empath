@@ -12,6 +12,10 @@ declare global {
   }
 }
 
+// Throttle lastActiveAt updates to once per 5 minutes per user
+const lastActiveUpdates = new Map<string, number>();
+const ACTIVE_UPDATE_INTERVAL = 5 * 60 * 1000;
+
 const TIER_RANK: Record<string, number> = {
   [SubscriptionTier.FREE]: 0,
   [SubscriptionTier.PREMIUM]: 1,
@@ -41,6 +45,19 @@ export async function authMiddleware(req: Request, _res: Response, next: NextFun
     throw new ForbiddenError(
       `Your account is suspended until ${user.suspendedUntil.toISOString().split("T")[0]}`,
     );
+  }
+
+  // Update lastActiveAt (throttled to every 5 min per user)
+  const now = Date.now();
+  const lastUpdate = lastActiveUpdates.get(req.user.userId) ?? 0;
+  if (now - lastUpdate > ACTIVE_UPDATE_INTERVAL) {
+    lastActiveUpdates.set(req.user.userId, now);
+    try {
+      prisma.user.update({
+        where: { id: req.user.userId },
+        data: { lastActiveAt: new Date() },
+      })?.catch?.(() => {});
+    } catch {}
   }
 
   next();
