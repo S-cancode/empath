@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
+  Animated,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -13,6 +15,7 @@ import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
 import { useConversations } from "@/hooks/queries/useConversations";
 import { useConversationsStore } from "@/stores/conversations.store";
+import { useArchiveConversation } from "@/hooks/mutations/useArchiveConversation";
 import { Avatar } from "@/components/ui/Avatar";
 import { AppBackground } from "@/components/ui/AppBackground";
 import type { Conversation } from "@/types/api";
@@ -36,60 +39,101 @@ function formatTime(dateStr: string | null) {
 function ConversationRow({
   item,
   onPress,
+  onArchive,
 }: {
   item: Conversation;
   onPress: () => void;
+  onArchive: () => void;
 }) {
   const unread = useConversationsStore((s) => s.unreadCounts[item.id] ?? 0);
   const isOnline = useConversationsStore((s) => s.presence[item.id]);
   const nickname = useConversationsStore((s) => s.nicknames[item.id]);
+  const translateX = useRef(new Animated.Value(0)).current;
 
   const displayName = nickname || item.partner.anonymousAlias;
   const hasUnread = unread > 0;
 
+  const handleSwipe = () => {
+    Alert.alert(
+      "Archive conversation",
+      `Archive your chat with ${displayName}?`,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+        }},
+        { text: "Archive", style: "destructive", onPress: onArchive },
+      ],
+    );
+  };
+
+  const panResponder = useRef(
+    (() => {
+      const { PanResponder } = require("react-native");
+      return PanResponder.create({
+        onMoveShouldSetPanResponder: (_: any, g: any) => Math.abs(g.dx) > 15 && Math.abs(g.dy) < 15,
+        onPanResponderMove: (_: any, g: any) => {
+          if (g.dx < 0) translateX.setValue(g.dx);
+        },
+        onPanResponderRelease: (_: any, g: any) => {
+          if (g.dx < -80) {
+            Animated.timing(translateX, { toValue: -100, duration: 150, useNativeDriver: true }).start(handleSwipe);
+          } else {
+            Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+          }
+        },
+      });
+    })()
+  ).current;
+
   return (
-    <TouchableOpacity
-      style={[styles.row, hasUnread && styles.rowUnread]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <View style={styles.avatarContainer}>
-        <Avatar alias={item.partner.anonymousAlias} size={50} />
-        {isOnline && <View style={styles.onlineDot} />}
+    <View style={styles.swipeContainer}>
+      <View style={styles.archiveAction}>
+        <Text style={styles.archiveActionText}>Archive</Text>
       </View>
-      <View style={styles.rowContent}>
-        <View style={styles.rowTop}>
-          <Text style={[styles.alias, hasUnread && styles.aliasUnread]} numberOfLines={1}>
-            {displayName}
-          </Text>
-          <Text style={[styles.time, hasUnread && styles.timeUnread]}>
-            {formatTime(item.lastMessageAt)}
-          </Text>
-        </View>
-        <Text style={[styles.preview, hasUnread && styles.previewUnread]} numberOfLines={1}>
-          {item.category.replace("-", " ")}
-        </Text>
-      </View>
-      {hasUnread && (
-        <View style={styles.unreadBadge}>
-          <Text style={styles.unreadCount}>{unread > 9 ? "9+" : unread}</Text>
-        </View>
-      )}
-    </TouchableOpacity>
+      <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
+        <TouchableOpacity
+          style={[styles.row, hasUnread && styles.rowUnread]}
+          onPress={onPress}
+          activeOpacity={0.7}
+        >
+          <View style={styles.avatarContainer}>
+            <Avatar alias={item.partner.anonymousAlias} size={50} />
+            {isOnline && <View style={styles.onlineDot} />}
+          </View>
+          <View style={styles.rowContent}>
+            <View style={styles.rowTop}>
+              <Text style={[styles.alias, hasUnread && styles.aliasUnread]} numberOfLines={1}>
+                {displayName}
+              </Text>
+              <Text style={[styles.time, hasUnread && styles.timeUnread]}>
+                {formatTime(item.lastMessageAt)}
+              </Text>
+            </View>
+            <Text style={[styles.preview, hasUnread && styles.previewUnread]} numberOfLines={1}>
+              {item.category.replace("-", " ")}
+            </Text>
+          </View>
+          {hasUnread && (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadCount}>{unread > 9 ? "9+" : unread}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
   );
 }
 
 export default function InboxScreen() {
   const router = useRouter();
   const { data: conversations, isLoading, refetch } = useConversations();
-
-
+  const archiveConversation = useArchiveConversation();
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <AppBackground />
       <View style={styles.header}>
-        <Text style={styles.title}>Messages</Text>
+        <Text style={styles.title}>Chats</Text>
       </View>
 
       <FlatList
@@ -99,6 +143,7 @@ export default function InboxScreen() {
           <ConversationRow
             item={item}
             onPress={() => router.push(`/(app)/chat/${item.id}`)}
+            onArchive={() => archiveConversation.mutate(item.id)}
           />
         )}
         refreshControl={
@@ -234,6 +279,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_700Bold",
     color: colors.textInverse,
+  },
+  swipeContainer: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: 16,
+  },
+  archiveAction: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 100,
+    backgroundColor: colors.error,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  archiveActionText: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
   },
   separator: {
     height: 8,
