@@ -306,11 +306,6 @@ export async function requestReconnect(
   userId: string,
   userTier: string,
 ): Promise<{ status: "requested" | "reconnected" }> {
-  const limits = getTierLimits(userTier);
-  if (!limits.canReconnectArchived) {
-    throw new UpgradeRequiredError(SubscriptionTier.PREMIUM);
-  }
-
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
   });
@@ -325,16 +320,12 @@ export async function requestReconnect(
   const partnerId =
     conversation.userAId === userId ? conversation.userBId : conversation.userAId;
 
-  const redisKey = `${RECONNECT_REQUEST_PREFIX}${conversationId}`;
-  const existingRequesterId = await redis.get(redisKey);
-
-  if (existingRequesterId && existingRequesterId !== userId) {
-    // Both users agreed — reactivate
+  // Immediately unarchive — no mutual consent required during beta
+  {
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { status: "active" },
     });
-    await redis.del(redisKey);
 
     emitNotification({
       type: "new_match",
@@ -345,18 +336,6 @@ export async function requestReconnect(
 
     return { status: "reconnected" };
   }
-
-  // First request — store and notify partner
-  await redis.set(redisKey, userId, "EX", RECONNECT_REQUEST_TTL);
-
-  emitNotification({
-    type: "new_message",
-    recipientId: partnerId,
-    payload: { conversationId, reconnectRequested: true, requesterId: userId },
-    createdAt: new Date(),
-  });
-
-  return { status: "requested" };
 }
 
 export async function autoArchiveStaleConversations(staleDays = 7): Promise<number> {

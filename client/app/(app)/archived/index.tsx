@@ -1,41 +1,28 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
   FlatList,
-  TouchableOpacity,
   StyleSheet,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
 import { useArchivedConversations } from "@/hooks/queries/useArchivedConversations";
 import { useReconnect } from "@/hooks/mutations/useReconnect";
-import { useAuthStore } from "@/stores/auth.store";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { UpgradePrompt } from "@/components/ui/UpgradePrompt";
 import { AppBackground } from "@/components/ui/AppBackground";
 
 export default function ArchivedScreen() {
   const router = useRouter();
-  const tier = useAuthStore((s) => s.user?.tier ?? "free");
   const { data: conversations, isLoading } = useArchivedConversations();
   const reconnectMutation = useReconnect();
-  const [showUpgrade, setShowUpgrade] = useState(false);
 
-  const handleReconnect = (conversationId: string) => {
+  const handleUnarchive = (conversationId: string) => {
     reconnectMutation.mutate(conversationId, {
-      onSuccess: (data) => {
-        if (data.status === "reconnected") {
-          router.push(`/(app)/chat/${conversationId}`);
-        } else {
-          Alert.alert(
-            "Request Sent",
-            "Your partner will be notified. The conversation will reactivate when they also agree."
-          );
-        }
+      onSuccess: () => {
+        router.back();
       },
     });
   };
@@ -54,9 +41,9 @@ export default function ArchivedScreen() {
               <Text style={styles.category}>{item.category}</Text>
             </View>
             <Button
-              title="Reconnect"
+              title="Unarchive"
               variant="outline"
-              onPress={() => handleReconnect(item.id)}
+              onPress={() => handleUnarchive(item.id)}
               loading={reconnectMutation.isPending}
             />
           </View>
@@ -71,13 +58,6 @@ export default function ArchivedScreen() {
             </Text>
           </View>
         }
-      />
-
-      <UpgradePrompt
-        visible={showUpgrade}
-        requiredTier="premium"
-        featureName="Reconnect"
-        onDismiss={() => setShowUpgrade(false)}
       />
     </View>
   );

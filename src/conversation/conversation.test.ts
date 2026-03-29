@@ -162,17 +162,24 @@ describe("conversation.service", () => {
   });
 
   describe("requestReconnect", () => {
-    it("rejects free tier users", async () => {
-      await expect(requestReconnect("conv-1", "user-1", "free")).rejects.toThrow("upgrade");
-    });
-
-    it("stores first reconnect request", async () => {
+    it("allows free tier users to unarchive", async () => {
       (mockPrisma.conversation.findUnique as any).mockResolvedValue({
         id: "conv-1", userAId: "user-1", userBId: "user-2", status: "archived",
       });
+      (mockPrisma.conversation.update as any).mockResolvedValue({});
+
+      const result = await requestReconnect("conv-1", "user-1", "free");
+      expect(result.status).toBe("reconnected");
+    });
+
+    it("immediately unarchives conversation", async () => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
+        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "archived",
+      });
+      (mockPrisma.conversation.update as any).mockResolvedValue({});
 
       const result = await requestReconnect("conv-1", "user-1", "premium");
-      expect(result.status).toBe("requested");
+      expect(result.status).toBe("reconnected");
     });
 
     it("reactivates on mutual consent", async () => {
