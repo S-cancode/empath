@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shivandongha.empath",
-      "buildNumber": "4",
+      "buildNumber": "6",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -50,7 +50,6 @@
     },
     "updates": {
       "enabled": true,
-      "checkAutomatically": "ON_LAUNCH",
       "fallbackToCacheTimeout": 5000,
       "url": "https://u.expo.dev/a16ef8c7-5c6a-4c61-afb9-1942717c9fe8"
     }
