@@ -7,7 +7,8 @@ import {
   StyleSheet,
   RefreshControl,
   Animated,
-  Alert,
+  Dimensions,
+  PanResponder,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -49,40 +50,37 @@ function ConversationRow({
   const isOnline = useConversationsStore((s) => s.presence[item.id]);
   const nickname = useConversationsStore((s) => s.nicknames[item.id]);
   const translateX = useRef(new Animated.Value(0)).current;
+  const screenWidth = Dimensions.get("window").width;
+  const ARCHIVE_THRESHOLD = screenWidth * 0.4;
 
   const displayName = nickname || item.partner.anonymousAlias;
   const hasUnread = unread > 0;
 
-  const handleSwipe = () => {
-    Alert.alert(
-      "Archive conversation",
-      `Archive your chat with ${displayName}?`,
-      [
-        { text: "Cancel", style: "cancel", onPress: () => {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
-        }},
-        { text: "Archive", style: "destructive", onPress: onArchive },
-      ],
-    );
-  };
-
   const panResponder = useRef(
-    (() => {
-      const { PanResponder } = require("react-native");
-      return PanResponder.create({
-        onMoveShouldSetPanResponder: (_: any, g: any) => Math.abs(g.dx) > 15 && Math.abs(g.dy) < 15,
-        onPanResponderMove: (_: any, g: any) => {
-          if (g.dx < 0) translateX.setValue(g.dx);
-        },
-        onPanResponderRelease: (_: any, g: any) => {
-          if (g.dx < -80) {
-            Animated.timing(translateX, { toValue: -100, duration: 150, useNativeDriver: true }).start(handleSwipe);
-          } else {
-            Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
-          }
-        },
-      });
-    })()
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_: any, g: any) => Math.abs(g.dx) > 15 && Math.abs(g.dy) < 15,
+      onPanResponderMove: (_: any, g: any) => {
+        if (g.dx < 0) translateX.setValue(g.dx);
+      },
+      onPanResponderRelease: (_: any, g: any) => {
+        if (g.dx < -ARCHIVE_THRESHOLD) {
+          // Swiped far enough — archive it
+          Animated.timing(translateX, {
+            toValue: -screenWidth,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => onArchive());
+        } else {
+          // Snap back
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 40,
+            friction: 8,
+          }).start();
+        }
+      },
+    })
   ).current;
 
   return (
