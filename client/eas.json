@@ -19,6 +19,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://empath-production.up.railway.app"
       }
