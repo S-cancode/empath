@@ -26,10 +26,6 @@ export default function ArchivedScreen() {
   const [showUpgrade, setShowUpgrade] = useState(false);
 
   const handleReconnect = (conversationId: string) => {
-    if (tier === "free") {
-      setShowUpgrade(true);
-      return;
-    }
     reconnectMutation.mutate(conversationId, {
       onSuccess: (data) => {
         if (data.status === "reconnected") {

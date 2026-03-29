@@ -87,7 +87,7 @@ function ConversationRow({
       ref={swipeableRef}
       renderRightActions={renderRightActions}
       onSwipeableOpen={handleSwipeOpen}
-      rightThreshold={80}
+      rightThreshold={200}
       overshootRight={false}
       friction={2}
     >

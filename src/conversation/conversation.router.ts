@@ -92,7 +92,7 @@ router.put("/:id/archive", async (req, res, next) => {
 });
 
 // Reconnect archived conversation (Premium+)
-router.post("/:id/reconnect", requireTier(SubscriptionTier.PREMIUM), async (req, res, next) => {
+router.post("/:id/reconnect", async (req, res, next) => {
   try {
     const result = await requestReconnect(req.params.id as string, req.user!.userId, req.user!.tier);
     res.json(result);
