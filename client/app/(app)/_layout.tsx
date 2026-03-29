@@ -9,6 +9,7 @@ import { useSocket } from "@/providers/SocketProvider";
 import { MatchProposalModal } from "@/components/match/MatchProposalModal";
 import { queryClient } from "@/providers/QueryProvider";
 import { queryKeys } from "@/lib/query-keys";
+import * as Updates from "expo-updates";
 
 export default function AppLayout() {
   useGlobalMessageListener();
@@ -24,6 +25,21 @@ export default function AppLayout() {
 
   useEffect(() => {
     useConversationsStore.getState().loadNicknames();
+  }, []);
+
+  // Check for OTA updates on launch
+  useEffect(() => {
+    async function checkForUpdates() {
+      try {
+        if (__DEV__) return;
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch {}
+    }
+    checkForUpdates();
   }, []);
 
   // Listen globally for match:confirmed — partner can accept at any time
