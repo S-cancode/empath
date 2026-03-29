@@ -7,9 +7,8 @@ import {
   StyleSheet,
   RefreshControl,
   Animated,
-  Dimensions,
-  PanResponder,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "@/theme/colors";
@@ -37,6 +36,30 @@ function formatTime(dateStr: string | null) {
   return date.toLocaleDateString([], { day: "numeric", month: "short" });
 }
 
+function renderRightActions(
+  progress: Animated.AnimatedInterpolation<number>,
+  dragX: Animated.AnimatedInterpolation<number>,
+) {
+  const scale = dragX.interpolate({
+    inputRange: [-100, 0],
+    outputRange: [1, 0.5],
+    extrapolate: "clamp",
+  });
+  const opacity = dragX.interpolate({
+    inputRange: [-80, -40, 0],
+    outputRange: [1, 0.5, 0],
+    extrapolate: "clamp",
+  });
+
+  return (
+    <Animated.View style={[styles.archiveAction, { opacity }]}>
+      <Animated.Text style={[styles.archiveActionText, { transform: [{ scale }] }]}>
+        Archive
+      </Animated.Text>
+    </Animated.View>
+  );
+}
+
 function ConversationRow({
   item,
   onPress,
@@ -49,76 +72,54 @@ function ConversationRow({
   const unread = useConversationsStore((s) => s.unreadCounts[item.id] ?? 0);
   const isOnline = useConversationsStore((s) => s.presence[item.id]);
   const nickname = useConversationsStore((s) => s.nicknames[item.id]);
-  const translateX = useRef(new Animated.Value(0)).current;
-  const screenWidth = Dimensions.get("window").width;
-  const ARCHIVE_THRESHOLD = screenWidth * 0.4;
+  const swipeableRef = useRef<Swipeable>(null);
 
   const displayName = nickname || item.partner.anonymousAlias;
   const hasUnread = unread > 0;
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_: any, g: any) => Math.abs(g.dx) > 15 && Math.abs(g.dy) < 15,
-      onPanResponderMove: (_: any, g: any) => {
-        if (g.dx < 0) translateX.setValue(g.dx);
-      },
-      onPanResponderRelease: (_: any, g: any) => {
-        if (g.dx < -ARCHIVE_THRESHOLD) {
-          // Swiped far enough — archive it
-          Animated.timing(translateX, {
-            toValue: -screenWidth,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => onArchive());
-        } else {
-          // Snap back
-          Animated.spring(translateX, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 40,
-            friction: 8,
-          }).start();
-        }
-      },
-    })
-  ).current;
+  const handleSwipeOpen = () => {
+    onArchive();
+    swipeableRef.current?.close();
+  };
 
   return (
-    <View style={styles.swipeContainer}>
-      <View style={styles.archiveAction}>
-        <Text style={styles.archiveActionText}>Archive</Text>
-      </View>
-      <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
-        <TouchableOpacity
-          style={[styles.row, hasUnread && styles.rowUnread]}
-          onPress={onPress}
-          activeOpacity={0.7}
-        >
-          <View style={styles.avatarContainer}>
-            <Avatar alias={item.partner.anonymousAlias} size={50} />
-            {isOnline && <View style={styles.onlineDot} />}
-          </View>
-          <View style={styles.rowContent}>
-            <View style={styles.rowTop}>
-              <Text style={[styles.alias, hasUnread && styles.aliasUnread]} numberOfLines={1}>
-                {displayName}
-              </Text>
-              <Text style={[styles.time, hasUnread && styles.timeUnread]}>
-                {formatTime(item.lastMessageAt)}
-              </Text>
-            </View>
-            <Text style={[styles.preview, hasUnread && styles.previewUnread]} numberOfLines={1}>
-              {item.category.replace("-", " ")}
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={renderRightActions}
+      onSwipeableOpen={handleSwipeOpen}
+      rightThreshold={80}
+      overshootRight={false}
+      friction={2}
+    >
+      <TouchableOpacity
+        style={[styles.row, hasUnread && styles.rowUnread]}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        <View style={styles.avatarContainer}>
+          <Avatar alias={item.partner.anonymousAlias} size={50} />
+          {isOnline && <View style={styles.onlineDot} />}
+        </View>
+        <View style={styles.rowContent}>
+          <View style={styles.rowTop}>
+            <Text style={[styles.alias, hasUnread && styles.aliasUnread]} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Text style={[styles.time, hasUnread && styles.timeUnread]}>
+              {formatTime(item.lastMessageAt)}
             </Text>
           </View>
-          {hasUnread && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadCount}>{unread > 9 ? "9+" : unread}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </Animated.View>
-    </View>
+          <Text style={[styles.preview, hasUnread && styles.previewUnread]} numberOfLines={1}>
+            {item.category.replace("-", " ")}
+          </Text>
+        </View>
+        {hasUnread && (
+          <View style={styles.unreadBadge}>
+            <Text style={styles.unreadCount}>{unread > 9 ? "9+" : unread}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    </Swipeable>
   );
 }
 
@@ -278,21 +279,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     color: colors.textInverse,
   },
-  swipeContainer: {
-    position: "relative",
-    overflow: "hidden",
-    borderRadius: 16,
-  },
   archiveAction: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: 100,
     backgroundColor: colors.error,
-    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
+    width: 90,
+    borderRadius: 16,
+    marginLeft: 8,
   },
   archiveActionText: {
     color: "#fff",

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Slot, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
@@ -94,14 +95,16 @@ export default function RootLayout() {
   }
 
   return (
-    <QueryProvider>
-      <SocketProvider>
-        <SplashGate>
-          <StatusBar style="dark" />
-          <Slot />
-        </SplashGate>
-      </SocketProvider>
-    </QueryProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryProvider>
+        <SocketProvider>
+          <SplashGate>
+            <StatusBar style="dark" />
+            <Slot />
+          </SplashGate>
+        </SocketProvider>
+      </QueryProvider>
+    </GestureHandlerRootView>
   );
 }
 
