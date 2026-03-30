@@ -86,10 +86,10 @@ function ConversationRow({
     <Swipeable
       ref={swipeableRef}
       renderRightActions={renderRightActions}
-      onSwipeableOpen={handleSwipeOpen}
-      rightThreshold={200}
+      onSwipeableWillOpen={handleSwipeOpen}
+      rightThreshold={150}
       overshootRight={false}
-      friction={2}
+      friction={1.5}
     >
       <TouchableOpacity
         style={[styles.row, hasUnread && styles.rowUnread]}
