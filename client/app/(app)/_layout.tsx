@@ -100,6 +100,14 @@ export default function AppLayout() {
           options={{ headerShown: false, presentation: "fullScreenModal" }}
         />
         <Stack.Screen
+          name="privacy-notice"
+          options={{ headerShown: false, presentation: "modal" }}
+        />
+        <Stack.Screen
+          name="terms"
+          options={{ headerShown: false, presentation: "modal" }}
+        />
+        <Stack.Screen
           name="archived/index"
           options={{
             title: "Archived",

@@ -135,13 +135,13 @@ export default function ProfileScreen() {
           <Button
             title="Privacy Notice"
             variant="outline"
-            onPress={() => router.push("/(auth)/privacy-notice")}
+            onPress={() => router.push("/(app)/privacy-notice")}
             style={{ marginTop: 12 }}
           />
           <Button
             title="Terms of Service"
             variant="outline"
-            onPress={() => router.push("/(auth)/terms")}
+            onPress={() => router.push("/(app)/terms")}
             style={{ marginTop: 12 }}
           />
           <Button
