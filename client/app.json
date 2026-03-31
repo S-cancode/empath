@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shivandongha.empath",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -36,7 +36,8 @@
       "expo-router",
       "expo-secure-store",
       "expo-notifications",
-      "expo-updates"
+      "expo-updates",
+      "@sentry/react-native"
     ],
     "extra": {
       "router": {},
