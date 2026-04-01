@@ -192,14 +192,10 @@ export default function ProfileScreen() {
         </View>
 
         {/* Dev-only */}
-        {__DEV__ && (
-          <>
-            <Text style={s.sectionHeader}>DEVELOPER</Text>
-            <View style={s.section}>
-              <SettingsRow icon="refresh-outline" iconColor={colors.textTertiary} label="Reset Onboarding" onPress={handleResetOnboarding} />
-            </View>
-          </>
-        )}
+        <Text style={s.sectionHeader}>DEVELOPER</Text>
+        <View style={s.section}>
+          <SettingsRow icon="refresh-outline" iconColor={colors.textTertiary} label="Reset Onboarding" onPress={handleResetOnboarding} />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
