@@ -151,9 +151,8 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={s.profileSection}>
           <Avatar alias={user?.alias ?? "?"} size={64} />
+          <Text style={s.nameLabel}>Your name</Text>
           <Text style={s.alias}>{user?.alias ?? "Anonymous"}</Text>
-          <Text style={s.anonLabel}>Your anonymous ID</Text>
-          <Text style={s.anonId}>{user?.id.slice(0, 8) ?? "..."}</Text>
         </View>
 
         <TierCard tier={user?.tier ?? "free"} matchStatus={matchStatus} />
@@ -167,6 +166,14 @@ export default function ProfileScreen() {
         {/* Legal & Privacy */}
         <Text style={s.sectionHeader}>LEGAL & PRIVACY</Text>
         <View style={s.section}>
+          <TouchableOpacity style={s.row} activeOpacity={0.6} onPress={() => {}}>
+            <View style={[s.iconBox, { backgroundColor: colors.textTertiary + "15" }]}>
+              <Ionicons name="finger-print-outline" size={20} color={colors.textTertiary} />
+            </View>
+            <Text style={s.rowLabel}>Your ID</Text>
+            <Text style={s.rowValue}>{user?.id.slice(0, 8) ?? "..."}</Text>
+          </TouchableOpacity>
+          <SectionSeparator />
           <SettingsRow icon="shield-checkmark-outline" iconColor="#4ECDC4" label="Privacy Notice" onPress={() => router.push("/(app)/privacy-notice")} />
           <SectionSeparator />
           <SettingsRow icon="document-text-outline" iconColor="#6B7280" label="Terms of Service" onPress={() => router.push("/(app)/terms")} />
@@ -218,22 +225,16 @@ const s = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  alias: {
-    ...typography.h2,
-    color: colors.text,
-    marginTop: 12,
-  },
-  anonLabel: {
+  nameLabel: {
     fontSize: 12,
     fontFamily: "Inter_400Regular",
     color: colors.textTertiary,
-    marginTop: 6,
+    marginTop: 12,
   },
-  anonId: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-    color: colors.textSecondary,
-    marginTop: 2,
+  alias: {
+    ...typography.h2,
+    color: colors.text,
+    marginTop: 4,
   },
   sectionHeader: {
     fontSize: 13,
@@ -274,6 +275,12 @@ const s = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Inter_400Regular",
     color: colors.text,
+  },
+  rowValue: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: colors.textTertiary,
+    marginRight: 4,
   },
   rowSep: {
     height: StyleSheet.hairlineWidth,
