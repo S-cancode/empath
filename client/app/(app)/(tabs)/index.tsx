@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 0,
+    paddingTop: 12,
     paddingBottom: 24,
   },
   searchingBanner: {
