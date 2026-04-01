@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Tier, User } from "@/types/api";
 import {
   getAccessToken,
@@ -44,14 +45,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
 
-  setUser: (user) => set({ user }),
+  setUser: (user) => {
+    set({ user });
+    if (user?.alias) AsyncStorage.setItem("user_alias", user.alias).catch(() => {});
+  },
 
   hydrate: async () => {
     const accessToken = await getAccessToken();
     const refreshToken = await getRefreshToken();
     if (accessToken && refreshToken) {
       const { userId, tier } = decodeJwt(accessToken);
-      set({ accessToken, refreshToken, user: { id: userId, alias: "", tier }, isHydrated: true });
+      const alias = (await AsyncStorage.getItem("user_alias")) ?? "";
+      set({ accessToken, refreshToken, user: { id: userId, alias, tier }, isHydrated: true });
     } else {
       set({ isHydrated: true });
     }

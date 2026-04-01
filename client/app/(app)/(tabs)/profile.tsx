@@ -151,8 +151,8 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={s.scrollContent}>
         {/* Profile Header */}
         <View style={s.profileSection}>
-          <Avatar alias={user?.alias ?? "?"} size={64} />
-          <Text style={s.alias}>{user?.alias ?? "Anonymous"}</Text>
+          <Avatar alias={user?.alias || "?"} size={64} />
+          <Text style={s.alias}>{user?.alias || "Anonymous"}</Text>
         </View>
 
         <TierCard tier={user?.tier ?? "free"} matchStatus={matchStatus} />

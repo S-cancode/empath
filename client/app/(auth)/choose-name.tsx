@@ -1,9 +1,18 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Platform,
+} from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "@/theme/colors";
-import { typography } from "@/theme/typography";
 import { useAuthStore } from "@/stores/auth.store";
 import { apiClient } from "@/api/client";
 import { Button } from "@/components/ui/Button";
@@ -18,7 +27,7 @@ export default function ChooseNameScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const randomName = user?.alias ?? "Anonymous";
+  const randomName = user?.alias || "Anonymous";
 
   const handleKeepRandom = async () => {
     await AsyncStorage.setItem("name_chosen", "true");
@@ -55,53 +64,59 @@ export default function ChooseNameScreen() {
   const displayName = customName.trim() || randomName;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <AppBackground />
-      <View style={styles.content}>
-        <Text style={styles.title}>Choose your name</Text>
-        <Text style={styles.subtitle}>
-          This is how others will see you. You can keep your random name or pick your own.
-        </Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <AppBackground />
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.title}>Choose your name</Text>
+          <Text style={styles.subtitle}>
+            This is how others will see you. You can keep your random name or pick your own.
+          </Text>
 
-        <View style={styles.preview}>
-          <Avatar alias={displayName} size={72} />
-          <Text style={styles.previewName}>{displayName}</Text>
-        </View>
-
-        <View style={styles.randomSection}>
-          <Text style={styles.sectionLabel}>Your random name</Text>
-          <View style={styles.randomCard}>
-            <Text style={styles.randomName}>{randomName}</Text>
-            <Button title="Keep this name" onPress={handleKeepRandom} />
+          <View style={styles.preview}>
+            <Avatar alias={displayName} size={72} />
+            <Text style={styles.previewName}>{displayName}</Text>
           </View>
-        </View>
 
-        <View style={styles.customSection}>
-          <Text style={styles.sectionLabel}>Or choose your own</Text>
-          <TextInput
-            style={styles.input}
-            value={customName}
-            onChangeText={(t) => { setCustomName(t); setError(null); }}
-            placeholder="Enter a username..."
-            placeholderTextColor={colors.textTertiary}
-            maxLength={24}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {error && <Text style={styles.error}>{error}</Text>}
-          <Button
-            title="Use this name"
-            onPress={handleSetCustom}
-            loading={loading}
-            disabled={customName.trim().length < 2}
-            style={{ marginTop: 12 }}
-          />
-        </View>
-      </View>
-    </KeyboardAvoidingView>
+          <View style={styles.randomSection}>
+            <Text style={styles.sectionLabel}>Your random name</Text>
+            <View style={styles.randomCard}>
+              <Text style={styles.randomName}>{randomName}</Text>
+              <Button title="Keep this name" onPress={handleKeepRandom} />
+            </View>
+          </View>
+
+          <View style={styles.customSection}>
+            <Text style={styles.sectionLabel}>Or choose your own</Text>
+            <TextInput
+              style={styles.input}
+              value={customName}
+              onChangeText={(t) => { setCustomName(t); setError(null); }}
+              placeholder="Enter a username..."
+              placeholderTextColor={colors.textTertiary}
+              maxLength={24}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {error && <Text style={styles.error}>{error}</Text>}
+            <Button
+              title="Use this name"
+              onPress={handleSetCustom}
+              loading={loading}
+              disabled={customName.trim().length < 2}
+              style={{ marginTop: 12 }}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -109,10 +124,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    flex: 1,
+  scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 80,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 28,
@@ -166,7 +181,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: "center",
   },
-  customSection: {},
+  customSection: {
+    paddingBottom: 20,
+  },
   input: {
     backgroundColor: colors.surface,
     borderRadius: 14,
