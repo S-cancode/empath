@@ -31,7 +31,7 @@ export function Avatar({ alias, size = 40 }: AvatarProps) {
         { width: size, height: size, borderRadius: size / 2, backgroundColor: color },
       ]}
     >
-      <Text style={[styles.initial, { fontSize: size * 0.4 }]}>{initial}</Text>
+      <Text style={[styles.initial, { fontSize: size * 0.4, lineHeight: size * 0.48 }]}>{initial}</Text>
     </View>
   );
 }
@@ -42,7 +42,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   initial: {
-    ...typography.button,
+    fontFamily: "Inter_700Bold",
     color: "#FFFFFF",
+    textAlign: "center",
+    includeFontPadding: false,
+    textAlignVertical: "center",
   },
 });
