@@ -158,17 +158,15 @@ export default function InboxScreen() {
           conversations?.length === 0 && styles.emptyContainer,
         ]}
         ListHeaderComponent={
-          archivedCount > 0 ? (
-            <TouchableOpacity
-              style={styles.archivedRow}
-              onPress={() => router.push("/(app)/archived")}
-              activeOpacity={0.6}
-            >
-              <Ionicons name="archive-outline" size={22} color={colors.textSecondary} />
-              <Text style={styles.archivedRowText}>Archived</Text>
-              <Text style={styles.archivedRowCount}>{archivedCount}</Text>
-            </TouchableOpacity>
-          ) : null
+          <TouchableOpacity
+            style={styles.archivedRow}
+            onPress={() => router.push("/(app)/archived")}
+            activeOpacity={0.6}
+          >
+            <Ionicons name="archive-outline" size={22} color={colors.textSecondary} />
+            <Text style={styles.archivedRowText}>Archived</Text>
+            <Text style={styles.archivedRowCount}>{archivedCount}</Text>
+          </TouchableOpacity>
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
