@@ -31,9 +31,9 @@ export default function TabsLayout() {
         tabBarBadgeStyle: {
           backgroundColor: colors.primary,
         },
-        headerStyle: { backgroundColor: "#F8FBFF" },
+        headerStyle: { backgroundColor: colors.primary },
         headerShadowVisible: false,
-        headerShown: false,
+        headerTitleStyle: { fontFamily: "Inter_700Bold", color: "#FFFFFF" },
       }}
     >
       <Tabs.Screen
