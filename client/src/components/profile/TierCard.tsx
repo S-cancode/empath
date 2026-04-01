@@ -36,15 +36,17 @@ export function TierCard({ tier, matchStatus }: TierCardProps) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    padding: 22,
     marginHorizontal: 16,
-    marginVertical: 8,
+    marginVertical: 12,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
   },
   header: {
     flexDirection: "row",

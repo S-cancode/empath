@@ -1,9 +1,10 @@
 export const colors = {
-  primary: "#29B6F6",
-  primaryLight: "#81D4FA",
-  primaryDark: "#0288D1",
+  // Warm, calming palette — inspired by Headspace/Calm
+  primary: "#7C5CFC",        // Soft purple — trust, calm, empathy
+  primaryLight: "#B4A0FF",
+  primaryDark: "#5B3FD9",
 
-  background: "#E3F2FD",
+  background: "#FAF8F5",     // Warm off-white — not clinical
   surface: "#FFFFFF",
   surfaceElevated: "#FFFFFF",
 
@@ -12,31 +13,35 @@ export const colors = {
   textTertiary: "#9CA3AF",
   textInverse: "#FFFFFF",
 
-  border: "#E0E0E0",
-  borderLight: "#F0F4F8",
+  border: "#E8E5E0",
+  borderLight: "#F5F3F0",
 
   success: "#10B981",
   warning: "#F59E0B",
   error: "#EF4444",
-  info: "#29B6F6",
+  info: "#7C5CFC",
 
   sent: "#9CA3AF",
   delivered: "#6B7280",
-  read: "#29B6F6",
+  read: "#7C5CFC",
 
   online: "#10B981",
   offline: "#9CA3AF",
 
   tierFree: "#6B7280",
   tierPremium: "#F59E0B",
-  tierPlus: "#29B6F6",
+  tierPlus: "#7C5CFC",
 
   lock: "#D1D5DB",
 
+  // Subtle accent for cards and sections
+  accent: "#F0EDFF",         // Very light purple tint
+  accentWarm: "#FFF5EB",     // Warm peach tint
+
   bubble: {
-    mine: "#29B6F6",
+    mine: "#7C5CFC",
     mineText: "#FFFFFF",
-    theirs: "#FFFFFF",
+    theirs: "#F5F3F0",
     theirsText: "#1A1A2E",
   },
 } as const;

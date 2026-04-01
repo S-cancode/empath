@@ -2,9 +2,10 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { typography } from "@/theme/typography";
 
+// Softer, warmer avatar palette — works with the new purple theme
 const AVATAR_COLORS = [
-  "#6C63FF", "#FF6B6B", "#4ECDC4", "#FFD93D", "#6BCB77",
-  "#FF8E53", "#A78BFA", "#F472B6", "#34D399", "#60A5FA",
+  "#7C5CFC", "#F472B6", "#34D399", "#FBBF24", "#60A5FA",
+  "#A78BFA", "#FB923C", "#4ECDC4", "#F87171", "#818CF8",
 ];
 
 function hashAlias(alias: string): number {

@@ -90,11 +90,16 @@ const styles = StyleSheet.create({
   bubble: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 20,
+    borderRadius: 22,
   },
   mine: {
     backgroundColor: colors.bubble.mine,
     borderBottomRightRadius: 6,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 2,
   },
   theirs: {
     backgroundColor: colors.bubble.theirs,
@@ -102,8 +107,10 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
-    shadowRadius: 3,
+    shadowRadius: 4,
     elevation: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   content: {
     fontSize: 15,

@@ -31,13 +31,15 @@ export function MatchCounter({ status }: { status: MatchStatus | undefined }) {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.primaryLight + "20",
-    paddingVertical: 10,
+    backgroundColor: colors.accent || (colors.primaryLight + "20"),
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    marginHorizontal: 16,
-    marginBottom: 8,
+    borderRadius: 14,
+    marginHorizontal: 20,
+    marginBottom: 10,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.primaryLight + "30",
   },
   exhausted: {
     backgroundColor: colors.error + "15",

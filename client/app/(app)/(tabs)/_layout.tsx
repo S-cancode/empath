@@ -15,11 +15,18 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopWidth: 0,
-          elevation: 8,
+          elevation: 12,
           shadowColor: "#000",
-          shadowOffset: { width: 0, height: -2 },
+          shadowOffset: { width: 0, height: -4 },
           shadowOpacity: 0.06,
-          shadowRadius: 8,
+          shadowRadius: 12,
+          paddingTop: 4,
+          height: 88,
+        },
+        tabBarLabelStyle: {
+          fontFamily: "Inter_500Medium",
+          fontSize: 11,
+          marginTop: 2,
         },
         headerStyle: { backgroundColor: "transparent" },
         headerShadowVisible: false,
@@ -42,7 +49,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="inbox"
         options={{
-          title: "Inbox",
+          title: "Messages",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "chatbubbles" : "chatbubbles-outline"}
@@ -51,6 +58,11 @@ export default function TabsLayout() {
             />
           ),
           tabBarBadge: totalUnread > 0 ? totalUnread : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.primary,
+            fontSize: 11,
+            fontFamily: "Inter_700Bold",
+          },
         }}
       />
       <Tabs.Screen

@@ -61,14 +61,19 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    paddingVertical: 14,
+    paddingVertical: 15,
     paddingHorizontal: 24,
-    borderRadius: 25,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   primary: {
     backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
   secondary: {
     backgroundColor: colors.borderLight,
@@ -76,10 +81,15 @@ const styles = StyleSheet.create({
   outline: {
     backgroundColor: "transparent",
     borderWidth: 1.5,
-    borderColor: colors.primary,
+    borderColor: colors.border,
   },
   danger: {
     backgroundColor: colors.error,
+    shadowColor: colors.error,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
   disabled: {
     opacity: 0.5,
