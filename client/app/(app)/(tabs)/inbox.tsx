@@ -16,6 +16,8 @@ import { typography } from "@/theme/typography";
 import { useConversations } from "@/hooks/queries/useConversations";
 import { useConversationsStore } from "@/stores/conversations.store";
 import { useArchiveConversation } from "@/hooks/mutations/useArchiveConversation";
+import { useArchivedConversations } from "@/hooks/queries/useArchivedConversations";
+import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/ui/Avatar";
 import { AppBackground } from "@/components/ui/AppBackground";
 import type { Conversation } from "@/types/api";
@@ -126,19 +128,13 @@ function ConversationRow({
 export default function InboxScreen() {
   const router = useRouter();
   const { data: conversations, isLoading, refetch } = useConversations();
+  const { data: archivedConversations } = useArchivedConversations();
   const archiveConversation = useArchiveConversation();
+  const archivedCount = archivedConversations?.length ?? 0;
 
   return (
     <SafeAreaView style={styles.container} edges={[]}>
       <AppBackground />
-      <View style={styles.header}>
-        <Text style={styles.title}>Chats</Text>
-        {conversations && conversations.length > 0 && (
-          <Text style={styles.subtitle}>
-            {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
-          </Text>
-        )}
-      </View>
 
       <FlatList
         data={conversations}
@@ -161,6 +157,19 @@ export default function InboxScreen() {
           styles.list,
           conversations?.length === 0 && styles.emptyContainer,
         ]}
+        ListHeaderComponent={
+          archivedCount > 0 ? (
+            <TouchableOpacity
+              style={styles.archivedRow}
+              onPress={() => router.push("/(app)/archived")}
+              activeOpacity={0.6}
+            >
+              <Ionicons name="archive-outline" size={22} color={colors.textSecondary} />
+              <Text style={styles.archivedRowText}>Archived</Text>
+              <Text style={styles.archivedRowCount}>{archivedCount}</Text>
+            </TouchableOpacity>
+          ) : null
+        }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
           <View style={styles.empty}>
@@ -169,18 +178,6 @@ export default function InboxScreen() {
               Find a match in Explore to start chatting
             </Text>
           </View>
-        }
-        ListFooterComponent={
-          conversations && conversations.length > 0 ? (
-            <TouchableOpacity
-              style={styles.archivedLink}
-              onPress={() => router.push("/(app)/archived")}
-            >
-              <Text style={styles.archivedText}>
-                View archived conversations
-              </Text>
-            </TouchableOpacity>
-          ) : null
         }
       />
     </SafeAreaView>
@@ -191,19 +188,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+  archivedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    marginBottom: 8,
+    gap: 12,
   },
-  title: {
-    fontSize: 28,
-    fontFamily: "Inter_700Bold",
+  archivedRowText: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: "Inter_500Medium",
     color: colors.text,
-    letterSpacing: -0.3,
+  },
+  archivedRowCount: {
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: colors.textTertiary,
   },
   list: {
     paddingHorizontal: 16,
+    paddingTop: 12,
   },
   row: {
     flexDirection: "row",
@@ -216,12 +222,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
-  },
-  subtitle: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-    color: colors.textSecondary,
-    marginTop: 2,
   },
   rowUnread: {
     backgroundColor: colors.primaryLight + "18",
@@ -329,14 +329,5 @@ const styles = StyleSheet.create({
     ...typography.bodySmall,
     color: colors.textSecondary,
     textAlign: "center",
-  },
-  archivedLink: {
-    padding: 16,
-    alignItems: "center",
-  },
-  archivedText: {
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
-    color: colors.primary,
   },
 });
