@@ -63,12 +63,17 @@ const styles = StyleSheet.create({
   base: {
     paddingVertical: 14,
     paddingHorizontal: 24,
-    borderRadius: 25,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   primary: {
     backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   secondary: {
     backgroundColor: colors.borderLight,

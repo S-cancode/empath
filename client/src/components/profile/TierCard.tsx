@@ -45,6 +45,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
   },
   header: {
     flexDirection: "row",

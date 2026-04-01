@@ -133,6 +133,11 @@ export default function InboxScreen() {
       <AppBackground />
       <View style={styles.header}>
         <Text style={styles.title}>Chats</Text>
+        {conversations && conversations.length > 0 && (
+          <Text style={styles.subtitle}>
+            {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
+          </Text>
+        )}
       </View>
 
       <FlatList
@@ -206,6 +211,17 @@ const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: colors.surface,
     borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   rowUnread: {
     backgroundColor: colors.primaryLight + "18",

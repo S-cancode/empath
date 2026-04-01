@@ -20,6 +20,16 @@ export default function TabsLayout() {
           shadowOffset: { width: 0, height: -2 },
           shadowOpacity: 0.06,
           shadowRadius: 8,
+          height: 88,
+          paddingBottom: 28,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontFamily: "Inter_500Medium",
+          fontSize: 11,
+        },
+        tabBarBadgeStyle: {
+          backgroundColor: colors.primary,
         },
         headerStyle: { backgroundColor: "transparent" },
         headerShadowVisible: false,
@@ -33,7 +43,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "compass" : "compass-outline"}
-              size={24}
+              size={26}
               color={color}
             />
           ),
@@ -46,7 +56,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "chatbubbles" : "chatbubbles-outline"}
-              size={24}
+              size={26}
               color={color}
             />
           ),
@@ -60,7 +70,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "person-circle" : "person-circle-outline"}
-              size={24}
+              size={26}
               color={color}
             />
           ),

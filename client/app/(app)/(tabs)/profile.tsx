@@ -1,7 +1,8 @@
 import React from "react";
-import { View, Text, StyleSheet, Alert, Linking, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Alert, Linking, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -9,9 +10,38 @@ import { useAuthStore } from "@/stores/auth.store";
 import { useMatchStatus } from "@/hooks/queries/useMatchStatus";
 import { TierCard } from "@/components/profile/TierCard";
 import { Avatar } from "@/components/ui/Avatar";
-import { Button } from "@/components/ui/Button";
 import { AppBackground } from "@/components/ui/AppBackground";
 import { withdrawConsent, deleteAccount } from "@/api/compliance.api";
+
+function SettingsRow({
+  icon,
+  iconColor,
+  label,
+  onPress,
+  destructive,
+  showChevron = true,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  label: string;
+  onPress: () => void;
+  destructive?: boolean;
+  showChevron?: boolean;
+}) {
+  return (
+    <TouchableOpacity style={s.row} onPress={onPress} activeOpacity={0.6}>
+      <View style={[s.iconBox, { backgroundColor: iconColor + "15" }]}>
+        <Ionicons name={icon} size={20} color={iconColor} />
+      </View>
+      <Text style={[s.rowLabel, destructive && { color: colors.error }]}>{label}</Text>
+      {showChevron && <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />}
+    </TouchableOpacity>
+  );
+}
+
+function SectionSeparator() {
+  return <View style={s.rowSep} />;
+}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -115,74 +145,65 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={s.container} edges={["top"]}>
       <AppBackground />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.profileSection}>
+      <ScrollView contentContainerStyle={s.scrollContent}>
+        {/* Profile Header */}
+        <View style={s.profileSection}>
           <Avatar alias={user?.alias ?? "?"} size={64} />
-          <Text style={styles.alias}>{user?.alias ?? "Anonymous"}</Text>
-          <Text style={styles.userId}>ID: {user?.id.slice(0, 8) ?? "..."}</Text>
+          <Text style={s.alias}>{user?.alias ?? "Anonymous"}</Text>
+          <Text style={s.anonLabel}>Your anonymous ID</Text>
+          <Text style={s.anonId}>{user?.id.slice(0, 8) ?? "..."}</Text>
         </View>
 
         <TierCard tier={user?.tier ?? "free"} matchStatus={matchStatus} />
 
-        <View style={styles.actions}>
-          <Button
-            title="View Archived"
-            variant="outline"
-            onPress={() => router.push("/(app)/archived")}
-          />
-          <Button
-            title="Privacy Notice"
-            variant="outline"
-            onPress={() => router.push("/(app)/privacy-notice")}
-            style={{ marginTop: 12 }}
-          />
-          <Button
-            title="Terms of Service"
-            variant="outline"
-            onPress={() => router.push("/(app)/terms")}
-            style={{ marginTop: 12 }}
-          />
-          <Button
-            title="Complaints"
-            variant="outline"
-            onPress={handleComplaints}
-            style={{ marginTop: 12 }}
-          />
-          <Button
-            title="Withdraw Data Consent"
-            variant="secondary"
-            onPress={handleWithdrawConsent}
-            style={{ marginTop: 12 }}
-          />
-          <Button
-            title="Delete My Account"
-            variant="danger"
-            onPress={handleDeleteAccount}
-            style={{ marginTop: 12 }}
-          />
-          <Button
-            title="Log Out"
-            variant="outline"
-            onPress={handleLogout}
-            style={{ marginTop: 12 }}
-          />
-          <Button
-            title="Reset Onboarding (Dev)"
-            variant="outline"
-            onPress={handleResetOnboarding}
-            style={{ marginTop: 12 }}
-          />
+        {/* Account */}
+        <Text style={s.sectionHeader}>ACCOUNT</Text>
+        <View style={s.section}>
+          <SettingsRow icon="archive-outline" iconColor={colors.primary} label="View Archived" onPress={() => router.push("/(app)/archived")} />
         </View>
+
+        {/* Legal & Privacy */}
+        <Text style={s.sectionHeader}>LEGAL & PRIVACY</Text>
+        <View style={s.section}>
+          <SettingsRow icon="shield-checkmark-outline" iconColor="#4ECDC4" label="Privacy Notice" onPress={() => router.push("/(app)/privacy-notice")} />
+          <SectionSeparator />
+          <SettingsRow icon="document-text-outline" iconColor="#6B7280" label="Terms of Service" onPress={() => router.push("/(app)/terms")} />
+          <SectionSeparator />
+          <SettingsRow icon="mail-outline" iconColor="#FF8E53" label="Complaints" onPress={handleComplaints} />
+        </View>
+
+        {/* Data & Account */}
+        <Text style={s.sectionHeader}>DATA & ACCOUNT</Text>
+        <View style={s.section}>
+          <SettingsRow icon="hand-left-outline" iconColor={colors.warning} label="Withdraw Consent" onPress={handleWithdrawConsent} showChevron={false} />
+          <SectionSeparator />
+          <SettingsRow icon="trash-outline" iconColor={colors.error} label="Delete Account" onPress={handleDeleteAccount} destructive showChevron={false} />
+          <SectionSeparator />
+          <SettingsRow icon="log-out-outline" iconColor={colors.error} label="Log Out" onPress={handleLogout} destructive showChevron={false} />
+        </View>
+
+        {/* Dev-only */}
+        {__DEV__ && (
+          <>
+            <Text style={s.sectionHeader}>DEVELOPER</Text>
+            <View style={s.section}>
+              <SettingsRow icon="refresh-outline" iconColor={colors.textTertiary} label="Reset Onboarding" onPress={handleResetOnboarding} />
+            </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 40,
   },
   profileSection: {
     alignItems: "center",
@@ -202,16 +223,61 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginTop: 12,
   },
-  userId: {
-    ...typography.caption,
+  anonLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
     color: colors.textTertiary,
-    marginTop: 4,
+    marginTop: 6,
   },
-  scrollContent: {
-    paddingBottom: 40,
+  anonId: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: colors.textSecondary,
+    marginTop: 2,
   },
-  actions: {
-    padding: 16,
-    marginTop: 16,
+  sectionHeader: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: colors.textTertiary,
+    letterSpacing: 0.5,
+    marginLeft: 32,
+    marginBottom: 6,
+    marginTop: 24,
+  },
+  section: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    marginHorizontal: 16,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  iconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+  },
+  rowLabel: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+    color: colors.text,
+  },
+  rowSep: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.borderLight,
+    marginLeft: 62,
   },
 });

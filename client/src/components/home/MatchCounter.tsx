@@ -38,9 +38,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 8,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.primaryLight + "40",
   },
   exhausted: {
     backgroundColor: colors.error + "15",
+    borderColor: colors.error + "30",
   },
   text: {
     ...typography.bodySmall,

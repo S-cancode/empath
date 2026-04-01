@@ -3,8 +3,8 @@ import { View, Text, StyleSheet } from "react-native";
 import { typography } from "@/theme/typography";
 
 const AVATAR_COLORS = [
-  "#6C63FF", "#FF6B6B", "#4ECDC4", "#FFD93D", "#6BCB77",
-  "#FF8E53", "#A78BFA", "#F472B6", "#34D399", "#60A5FA",
+  "#8B9DC3", "#D4A5A5", "#7EC8B0", "#C9B99A", "#9BB5CE",
+  "#D4B896", "#B8A9C9", "#E0AFA0", "#8CBCB9", "#A7C4BC",
 ];
 
 function hashAlias(alias: string): number {
