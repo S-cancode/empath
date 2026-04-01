@@ -10,6 +10,7 @@ import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
 import { useArchivedConversations } from "@/hooks/queries/useArchivedConversations";
 import { useReconnect } from "@/hooks/mutations/useReconnect";
+import { useConversationsStore } from "@/stores/conversations.store";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { AppBackground } from "@/components/ui/AppBackground";
@@ -17,6 +18,7 @@ import { AppBackground } from "@/components/ui/AppBackground";
 export default function ArchivedScreen() {
   const router = useRouter();
   const { data: conversations, isLoading } = useArchivedConversations();
+  const nicknames = useConversationsStore((s) => s.nicknames);
   const reconnectMutation = useReconnect();
 
   const handleUnarchive = (conversationId: string) => {
@@ -35,9 +37,9 @@ export default function ArchivedScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.row}>
-            <Avatar alias={item.partner.anonymousAlias} size={44} />
+            <Avatar alias={nicknames[item.id] || item.partner.anonymousAlias} size={44} />
             <View style={styles.rowContent}>
-              <Text style={styles.alias}>{item.partner.anonymousAlias}</Text>
+              <Text style={styles.alias}>{nicknames[item.id] || item.partner.anonymousAlias}</Text>
               <Text style={styles.category}>{item.category}</Text>
             </View>
             <Button

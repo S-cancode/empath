@@ -97,7 +97,7 @@ function ConversationRow({
         activeOpacity={0.7}
       >
         <View style={styles.avatarContainer}>
-          <Avatar alias={item.partner.anonymousAlias} size={50} />
+          <Avatar alias={displayName} size={50} />
           {isOnline && <View style={styles.onlineDot} />}
         </View>
         <View style={styles.rowContent}>
