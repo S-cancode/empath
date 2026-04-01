@@ -56,7 +56,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={styles.container} edges={[]}>
       <AppBackground />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 8,
+    paddingTop: 0,
     paddingBottom: 24,
   },
   searchingBanner: {

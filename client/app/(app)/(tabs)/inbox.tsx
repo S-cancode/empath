@@ -129,7 +129,7 @@ export default function InboxScreen() {
   const archiveConversation = useArchiveConversation();
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={styles.container} edges={[]}>
       <AppBackground />
       <View style={styles.header}>
         <Text style={styles.title}>Chats</Text>
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 0,
     paddingBottom: 16,
   },
   title: {

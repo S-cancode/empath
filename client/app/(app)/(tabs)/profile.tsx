@@ -146,7 +146,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={s.container} edges={["top"]}>
+    <SafeAreaView style={s.container} edges={[]}>
       <AppBackground />
       <ScrollView contentContainerStyle={s.scrollContent}>
         {/* Profile Header */}
@@ -213,7 +213,7 @@ const s = StyleSheet.create({
     paddingVertical: 28,
     backgroundColor: colors.surface,
     marginHorizontal: 16,
-    marginTop: 16,
+    marginTop: 8,
     borderRadius: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
