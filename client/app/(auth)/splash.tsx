@@ -33,13 +33,27 @@ export default function SplashScreen() {
       });
 
       // Check compliance state and route accordingly
-      const [ageConfirmed, termsVersion, consentRecorded] = await Promise.all([
+      const [nameChosen, ageConfirmed, termsVersion, consentRecorded] = await Promise.all([
+        AsyncStorage.getItem("name_chosen"),
         AsyncStorage.getItem("age_confirmed"),
         AsyncStorage.getItem("terms_accepted_version"),
         AsyncStorage.getItem("consent_recorded"),
       ]);
 
-      if (!ageConfirmed) {
+      if (!nameChosen && !ageConfirmed) {
+        // New user — go to name selection first
+        router.replace("/(auth)/choose-name");
+      } else if (!nameChosen && ageConfirmed) {
+        // Existing user who never saw this screen — skip it
+        await AsyncStorage.setItem("name_chosen", "true");
+        if (!termsVersion) {
+          router.replace("/(auth)/terms");
+        } else if (!consentRecorded) {
+          router.replace("/(auth)/consent");
+        } else {
+          router.replace("/(app)/(tabs)");
+        }
+      } else if (!ageConfirmed) {
         router.replace("/(auth)/age-gate");
       } else if (!termsVersion) {
         router.replace("/(auth)/terms");

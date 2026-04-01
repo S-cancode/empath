@@ -4,6 +4,7 @@ import { createAnonymousUser, refreshTokens, upgradeWithEmail } from "./auth.ser
 import { authMiddleware } from "./auth.middleware.js";
 import { authLimiter } from "../shared/rate-limiter.js";
 import { ValidationError } from "../shared/errors.js";
+import { prisma } from "../lib/prisma.js";
 
 const router = Router();
 
@@ -53,6 +54,26 @@ router.post("/upgrade", authLimiter, authMiddleware, async (req, res, next) => {
     }
     const user = await upgradeWithEmail(req.user!.userId, parsed.data.email);
     res.json({ email: user.email });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const aliasSchema = z.object({
+  alias: z.string().min(2).max(24).regex(/^[a-zA-Z0-9_]+$/, "Letters, numbers, and underscores only"),
+});
+
+router.put("/alias", authLimiter, authMiddleware, async (req, res, next) => {
+  try {
+    const parsed = aliasSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0].message);
+    }
+    const user = await prisma.user.update({
+      where: { id: req.user!.userId },
+      data: { anonymousAlias: parsed.data.alias },
+    });
+    res.json({ alias: user.anonymousAlias });
   } catch (err) {
     next(err);
   }

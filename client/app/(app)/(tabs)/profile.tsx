@@ -57,6 +57,7 @@ export default function ProfileScreen() {
   const handleResetOnboarding = async () => {
     await AsyncStorage.multiRemove([
       "onboarding_complete",
+      "name_chosen",
       "age_confirmed",
       "terms_accepted_version",
       "consent_recorded",
@@ -151,7 +152,6 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={s.profileSection}>
           <Avatar alias={user?.alias ?? "?"} size={64} />
-          <Text style={s.nameLabel}>Your name</Text>
           <Text style={s.alias}>{user?.alias ?? "Anonymous"}</Text>
         </View>
 
@@ -225,16 +225,10 @@ const s = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  nameLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: colors.textTertiary,
-    marginTop: 12,
-  },
   alias: {
     ...typography.h2,
     color: colors.text,
-    marginTop: 4,
+    marginTop: 12,
   },
   sectionHeader: {
     fontSize: 13,

@@ -35,13 +35,17 @@ function SplashGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     Promise.all([
       AsyncStorage.getItem("onboarding_complete"),
+      AsyncStorage.getItem("name_chosen"),
       AsyncStorage.getItem("age_confirmed"),
       AsyncStorage.getItem("terms_accepted_version"),
       AsyncStorage.getItem("consent_recorded"),
-    ]).then(([onboarding, age, terms, consent]) => {
+    ]).then(([onboarding, nameChosen, age, terms, consent]) => {
       setOnboardingComplete(onboarding === "true");
 
-      if (!age) {
+      if (!nameChosen) {
+        setComplianceRoute("/(auth)/choose-name");
+        setComplianceComplete(false);
+      } else if (!age) {
         setComplianceRoute("/(auth)/age-gate");
         setComplianceComplete(false);
       } else if (!terms) {
