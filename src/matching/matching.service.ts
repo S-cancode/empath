@@ -413,6 +413,7 @@ export async function declineProposal(
 // --- Stale entry cleanup ---
 
 export async function cleanupStaleEntries(): Promise<number> {
+  if (!isFinite(STALE_ENTRY_MS)) return 0; // Never expire
   const cutoff = new Date(Date.now() - STALE_ENTRY_MS);
 
   // Clean Postgres
