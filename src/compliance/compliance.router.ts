@@ -7,6 +7,7 @@ import {
   acceptTerms,
   recordConsent,
   withdrawConsent,
+  exportUserData,
   deleteAccount,
   submitComplaint,
   getComplaintsForUser,
@@ -118,6 +119,16 @@ router.get("/complaints", async (req, res, next) => {
   try {
     const complaints = await getComplaintsForUser(req.user!.userId);
     res.json(complaints);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DSAR — data export (Art 15 & 20)
+router.get("/export", async (req, res, next) => {
+  try {
+    const data = await exportUserData(req.user!.userId);
+    res.json(data);
   } catch (err) {
     next(err);
   }

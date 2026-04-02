@@ -288,40 +288,98 @@ export async function deleteExpiredComplaints(): Promise<number> {
   return result.count;
 }
 
+/** DSAR data export — returns all personal data held for a user */
+export async function exportUserData(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      anonymousAlias: true,
+      email: true,
+      subscriptionTier: true,
+      dateOfBirth: true,
+      ageConfirmedAt: true,
+      sensitiveDataConsent: true,
+      consentWithdrawnAt: true,
+      createdAt: true,
+      lastActiveAt: true,
+    },
+  });
+  if (!user) throw new NotFoundError("User not found");
+
+  const conversations = await prisma.conversation.findMany({
+    where: { OR: [{ userAId: userId }, { userBId: userId }] },
+    select: { id: true, category: true, subTag: true, status: true, createdAt: true, lastMessageAt: true },
+  });
+
+  const messages = await prisma.message.findMany({
+    where: { senderId: userId },
+    select: { id: true, conversationId: true, sentAt: true, messageType: true, voiceDurationMs: true },
+    orderBy: { sentAt: "desc" },
+  });
+
+  const termsAcceptances = await prisma.termsAcceptance.findMany({
+    where: { userId },
+    select: { termsVersion: true, acceptedAt: true, appVersion: true },
+  });
+
+  const consentRecords = await prisma.consentRecord.findMany({
+    where: { userId },
+    select: { consentType: true, consentVersion: true, granted: true, recordedAt: true, withdrawnAt: true },
+  });
+
+  const reports = await prisma.report.findMany({
+    where: { reporterId: userId },
+    select: { id: true, reason: true, status: true, createdAt: true },
+  });
+
+  const complaints = await prisma.complaint.findMany({
+    where: { userId },
+    select: { id: true, subject: true, status: true, createdAt: true, resolvedAt: true },
+  });
+
+  const crisisEvents = await prisma.crisisEvent.findMany({
+    where: { userId },
+    select: { id: true, triggerKeywords: true, createdAt: true },
+  });
+
+  const blocks = await prisma.blockedUser.findMany({
+    where: { userId },
+    select: { blockedId: true, createdAt: true },
+  });
+
+  return {
+    exportedAt: new Date().toISOString(),
+    user,
+    conversations,
+    messagesSent: messages.length,
+    messagesNote: "Message content is encrypted at rest and auto-deleted after 7 days. Content is not included in this export.",
+    termsAcceptances,
+    consentRecords,
+    reportsFiled: reports,
+    complaints,
+    crisisEvents,
+    blockedUsers: blocks,
+  };
+}
+
 export async function deleteAccount(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new NotFoundError("User not found");
 
-  // Delete messages sent by this user
+  // Only delete messages SENT BY this user (not the other person's messages)
   await prisma.message.deleteMany({ where: { senderId: userId } });
 
-  // Delete messages in conversations where this user is a participant
-  await prisma.message.deleteMany({
-    where: {
-      conversation: {
-        OR: [{ userAId: userId }, { userBId: userId }],
-      },
-    },
-  });
-
-  // Delete ratings
+  // Delete ratings by this user
   await prisma.rating.deleteMany({ where: { raterId: userId } });
 
-  // Delete crisis events
+  // Delete crisis events for this user
   await prisma.crisisEvent.deleteMany({ where: { userId } });
 
-  // Delete live sessions in user's conversations
-  await prisma.liveSession.deleteMany({
-    where: {
-      conversation: {
-        OR: [{ userAId: userId }, { userBId: userId }],
-      },
-    },
-  });
-
-  // Delete conversations
-  await prisma.conversation.deleteMany({
-    where: { OR: [{ userAId: userId }, { userBId: userId }] },
+  // Archive conversations (don't delete — the other user may still need them)
+  await prisma.conversation.updateMany({
+    where: { OR: [{ userAId: userId }, { userBId: userId }], status: "active" },
+    data: { status: "archived" },
   });
 
   // Delete blocks where user is the blocker
