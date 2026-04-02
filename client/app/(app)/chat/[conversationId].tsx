@@ -22,11 +22,9 @@ import { useReportUser } from "@/hooks/mutations/useReportUser";
 import { useBlockUser } from "@/hooks/mutations/useBlockUser";
 import { useConversations } from "@/hooks/queries/useConversations";
 import { useConversationSocket } from "@/hooks/socket/useConversationSocket";
-import { useSocketEvent } from "@/hooks/socket/useSocketEvent";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
-import { LiveSessionBanner } from "@/components/chat/LiveSessionBanner";
 import { CrisisAlert } from "@/components/chat/CrisisAlert";
 import { ReportSheet } from "@/components/chat/ReportSheet";
 import { Avatar } from "@/components/ui/Avatar";
@@ -108,30 +106,10 @@ export default function ChatScreen() {
   const {
     isOnline,
     isTyping,
-    liveSessionInvite,
     crisisData,
     clearCrisis,
-    acceptInvite,
-    declineInvite,
     emitTyping,
   } = useConversationSocket(conversationId!);
-
-  useSocketEvent<{
-    liveSessionId: string;
-    conversationId: string;
-    durationMs: number;
-  }>("livesession:started", (data) => {
-    if (data.conversationId === conversationId) {
-      router.push({
-        pathname: "/(app)/live/[liveSessionId]",
-        params: {
-          liveSessionId: data.liveSessionId,
-          conversationId: conversationId!,
-          durationMs: String(data.durationMs),
-        },
-      });
-    }
-  });
 
   const messagesExpired =
     data?.pages != null &&
@@ -304,12 +282,6 @@ export default function ChatScreen() {
       >
         <View style={styles.container}>
           <AppBackground />
-          {liveSessionInvite && (
-            <LiveSessionBanner
-              onAccept={acceptInvite}
-              onDecline={declineInvite}
-            />
-          )}
 
           <FlatList
             data={messages}

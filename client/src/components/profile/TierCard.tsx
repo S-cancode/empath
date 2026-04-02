@@ -11,9 +11,9 @@ interface TierCardProps {
 }
 
 const tierDescriptions: Record<Tier, string> = {
-  free: "3 matches/day, 20 min live sessions",
-  premium: "10 matches/day, 45 min live sessions, sub-tags",
-  plus: "Unlimited matches, 60 min live sessions, all features",
+  free: "3 matches per day",
+  premium: "10 matches per day, sub-tags",
+  plus: "Unlimited matches, all features",
 };
 
 export function TierCard({ tier, matchStatus }: TierCardProps) {

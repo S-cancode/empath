@@ -176,13 +176,6 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
       );
       break;
 
-    case "live_session_invite":
-      await sendExpoPush(
-        token,
-        "Live Session Invite",
-        "Your match wants to start a live session",
-        pushData
-      );
-      break;
+    // live_session_invite — feature removed
   }
 }

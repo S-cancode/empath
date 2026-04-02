@@ -88,16 +88,8 @@ export default function AppLayout() {
           options={{ headerShown: false }}
         />
         <Stack.Screen
-          name="live/[liveSessionId]"
-          options={{ headerShown: false, presentation: "fullScreenModal" }}
-        />
-        <Stack.Screen
           name="confirm"
           options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="post-session"
-          options={{ headerShown: false, presentation: "fullScreenModal" }}
         />
         <Stack.Screen
           name="privacy-notice"
