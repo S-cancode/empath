@@ -345,7 +345,7 @@ export async function exportUserData(userId: string) {
 
   const blocks = await prisma.blockedUser.findMany({
     where: { userId },
-    select: { blockedId: true, createdAt: true },
+    select: { blockedUserId: true, createdAt: true },
   });
 
   return {
