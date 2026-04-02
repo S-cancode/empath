@@ -11,7 +11,7 @@ const RECENT_MATCH_PREFIX = "match:recent:";
 const RECENT_MATCH_TTL = 24 * 60 * 60; // 24 hours
 const DAILY_MATCH_PREFIX = "matches:";
 const ANALYSE_PENDING_PREFIX = "analyse:pending:";
-const STALE_ENTRY_MS = 30 * 60 * 1000; // 30 minutes
+const STALE_ENTRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MIN_HYBRID_SCORE = 0.25;
 
 export async function joinQueue(request: MatchRequest): Promise<void> {
