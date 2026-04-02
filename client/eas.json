@@ -22,6 +22,7 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://empath-production.up.railway.app",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://7929a468466740e00602067b3b8397d7@o4511141110874112.ingest.de.sentry.io/4511141136498768",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     }

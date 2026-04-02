@@ -4,7 +4,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as Sentry from "@sentry/react-native";
 
 Sentry.init({
-  dsn: "https://7929a468466740e00602067b3b8397d7@o4511141110874112.ingest.de.sentry.io/4511141136498768",
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN ?? "https://7929a468466740e00602067b3b8397d7@o4511141110874112.ingest.de.sentry.io/4511141136498768",
   enabled: !__DEV__,
 });
 import { Slot, useRouter, useSegments } from "expo-router";

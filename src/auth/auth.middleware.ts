@@ -16,6 +16,14 @@ declare global {
 const lastActiveUpdates = new Map<string, number>();
 const ACTIVE_UPDATE_INTERVAL = 5 * 60 * 1000;
 
+// Periodic cleanup to prevent unbounded growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of lastActiveUpdates) {
+    if (now - ts > ACTIVE_UPDATE_INTERVAL * 2) lastActiveUpdates.delete(key);
+  }
+}, 10 * 60 * 1000);
+
 const TIER_RANK: Record<string, number> = {
   [SubscriptionTier.FREE]: 0,
   [SubscriptionTier.PREMIUM]: 1,

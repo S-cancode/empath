@@ -34,6 +34,18 @@ const liveSessionInvites = new Map<string, LiveSessionInvite>();
 // Track crisis alerts shown per user per conversation to enforce once-per-session
 const crisisAlertsSent = new Map<string, Set<string>>();
 
+// Periodic cleanup of in-memory maps to prevent unbounded growth
+const CLEANUP_INTERVAL = 10 * 60 * 1000; // 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  // Clean expired rate limit entries
+  for (const [key, tracker] of rateLimits) {
+    if (now > tracker.resetAt) rateLimits.delete(key);
+  }
+  // Cap crisis alerts map size
+  if (crisisAlertsSent.size > 10000) crisisAlertsSent.clear();
+}, CLEANUP_INTERVAL);
+
 function checkMessageRate(userId: string): boolean {
   const now = Date.now();
   let tracker = rateLimits.get(userId);
@@ -208,6 +220,10 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("conversation:message", async (data: { conversationId: string; content: string }) => {
+      if (!data.content || data.content.length > 5000) {
+        socket.emit("error", { message: "Message must be between 1 and 5000 characters" });
+        return;
+      }
       if (!checkMessageRate(userId)) {
         socket.emit("error", { message: "Rate limit exceeded" });
         return;
@@ -364,6 +380,10 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("livesession:message", async (data: { liveSessionId: string; conversationId: string; content: string }) => {
+      if (!data.content || data.content.length > 5000) {
+        socket.emit("error", { message: "Message must be between 1 and 5000 characters" });
+        return;
+      }
       if (!checkMessageRate(userId)) {
         socket.emit("error", { message: "Rate limit exceeded" });
         return;

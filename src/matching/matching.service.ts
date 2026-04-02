@@ -273,94 +273,103 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
 
 // --- Match proposal accept/decline ---
 
+// Lua script for atomic accept — returns: "matched" | "waiting" | "expired" | "invalid"
+const ACCEPT_LUA = `
+local key = KEYS[1]
+local userId = ARGV[1]
+local raw = redis.call('GET', key)
+if not raw then return 'expired' end
+local proposal = cjson.decode(raw)
+local isA = proposal.userAId == userId
+local isB = proposal.userBId == userId
+if not isA and not isB then return 'invalid' end
+if isA then proposal.userAAccepted = true end
+if isB then proposal.userBAccepted = true end
+if proposal.userAAccepted and proposal.userBAccepted then
+  redis.call('DEL', key)
+  redis.call('DEL', 'match:pending:' .. proposal.userAId)
+  redis.call('DEL', 'match:pending:' .. proposal.userBId)
+  return 'matched:' .. raw
+end
+redis.call('SET', key, cjson.encode(proposal), 'KEEPTTL')
+return 'waiting'
+`;
+
 export async function acceptProposal(
   proposalId: string,
   userId: string,
 ): Promise<{ status: "waiting" | "matched"; conversationId?: string }> {
-  const raw = await redis.get(`match:proposal:${proposalId}`);
-  if (!raw) return { status: "waiting" }; // expired
-
-  const proposal = JSON.parse(raw);
-  const isUserA = proposal.userAId === userId;
-  const isUserB = proposal.userBId === userId;
-  if (!isUserA && !isUserB) return { status: "waiting" };
-
-  if (isUserA) proposal.userAAccepted = true;
-  if (isUserB) proposal.userBAccepted = true;
-
-  if (proposal.userAAccepted && proposal.userBAccepted) {
-    // Both accepted — create conversation
-    await redis.del(`match:proposal:${proposalId}`);
-    await redis.del(`match:pending:${proposal.userAId}`);
-    await redis.del(`match:pending:${proposal.userBId}`);
-
-    const matchContext = {
-      userA: proposal.matchContextA,
-      userB: proposal.matchContextB,
-    };
-
-    const conversation = await prisma.conversation.create({
-      data: {
-        userAId: proposal.userAId,
-        userBId: proposal.userBId,
-        category: proposal.category,
-        subTag: proposal.subTag,
-        matchContext: matchContext as Prisma.InputJsonValue,
-      },
-    });
-
-    // Log anonymised match quality
-    await prisma.matchQualityLog.create({
-      data: {
-        similarityScore: proposal.similarity,
-        categoryA: proposal.userACategory,
-        categoryB: proposal.userBCategory,
-      },
-    });
-
-    // Increment daily counters
-    await incrementDailyMatchCount(proposal.userAId);
-    await incrementDailyMatchCount(proposal.userBId);
-
-    // Record recent match
-    await markRecentlyMatched(proposal.userAId, proposal.userBId);
-
-    // Clean up encrypted raw text
-    await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userAId}`);
-    await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userBId}`);
-
-    // Remove from match queue
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
-      proposal.userAId,
-      proposal.userBId,
-    );
-
-    // Notify both
-    emitNotification({
-      type: "match_confirmed",
-      recipientId: proposal.userAId,
-      payload: { conversationId: conversation.id, partnerId: proposal.userBId },
-      createdAt: new Date(),
-    });
-    emitNotification({
-      type: "match_confirmed",
-      recipientId: proposal.userBId,
-      payload: { conversationId: conversation.id, partnerId: proposal.userAId },
-      createdAt: new Date(),
-    });
-
-    return { status: "matched", conversationId: conversation.id };
-  }
-
-  // Only one accepted so far — update and wait
-  await redis.set(
+  const result = await redis.eval(
+    ACCEPT_LUA,
+    1,
     `match:proposal:${proposalId}`,
-    JSON.stringify(proposal),
-    "EX",
-    300,
+    userId,
+  ) as string;
+
+  if (result === "expired" || result === "invalid") return { status: "waiting" };
+  if (result === "waiting") return { status: "waiting" };
+
+  // result starts with "matched:" — parse the original proposal
+  const raw = result.slice(8);
+  const proposal = JSON.parse(raw);
+
+  const matchContext = {
+    userA: proposal.matchContextA,
+    userB: proposal.matchContextB,
+  };
+
+  const conversation = await prisma.conversation.create({
+    data: {
+      userAId: proposal.userAId,
+      userBId: proposal.userBId,
+      category: proposal.category,
+      subTag: proposal.subTag,
+      matchContext: matchContext as Prisma.InputJsonValue,
+    },
+  });
+
+  // Log anonymised match quality
+  await prisma.matchQualityLog.create({
+    data: {
+      similarityScore: proposal.similarity,
+      categoryA: proposal.userACategory,
+      categoryB: proposal.userBCategory,
+    },
+  });
+
+  // Increment daily counters
+  await incrementDailyMatchCount(proposal.userAId);
+  await incrementDailyMatchCount(proposal.userBId);
+
+  // Record recent match
+  await markRecentlyMatched(proposal.userAId, proposal.userBId);
+
+  // Clean up encrypted raw text
+  await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userAId}`);
+  await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userBId}`);
+
+  // Remove from match queue
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
+    proposal.userAId,
+    proposal.userBId,
   );
-  return { status: "waiting" };
+
+  // Notify both
+  emitNotification({
+    type: "match_confirmed",
+    recipientId: proposal.userAId,
+    payload: { conversationId: conversation.id, partnerId: proposal.userBId },
+    createdAt: new Date(),
+  });
+  emitNotification({
+    type: "match_confirmed",
+    recipientId: proposal.userBId,
+    payload: { conversationId: conversation.id, partnerId: proposal.userAId },
+    createdAt: new Date(),
+  });
+
+  return { status: "matched", conversationId: conversation.id };
 }
 
 export async function declineProposal(
