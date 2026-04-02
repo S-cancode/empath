@@ -22,6 +22,7 @@ export async function leaveMatch(category: string): Promise<void> {
 
 export interface QueueStatus {
   inQueue: boolean;
+  activeSearches?: { category: string; joinedAt: number }[];
   pendingProposal?: {
     proposalId: string;
     partnerSummary: string;

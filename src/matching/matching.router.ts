@@ -119,13 +119,13 @@ router.get("/queue-status", apiLimiter, authMiddleware, async (req, res, next) =
     const userId = req.user!.userId;
     const proposalId = await redis.get(`match:pending:${userId}`);
     if (proposalId) {
-      // Return proposal details so the client can show the modal
       const proposalData = await redis.get(`match:proposal:${proposalId}`);
       if (proposalData) {
         const proposal = JSON.parse(proposalData);
         const isUserA = proposal.userAId === userId;
         res.json({
           inQueue: true,
+          activeSearches: [],
           pendingProposal: {
             proposalId,
             partnerSummary: isUserA ? proposal.userBSummary : proposal.userASummary,
@@ -136,11 +136,14 @@ router.get("/queue-status", apiLimiter, authMiddleware, async (req, res, next) =
       }
     }
     const members = await redis.zrange("match:queue:global", 0, -1);
-    const inQueue = members.some((m) => {
+    const activeSearches: { category: string; joinedAt: number }[] = [];
+    for (const m of members) {
       const parsed = JSON.parse(m);
-      return parsed.userId === userId;
-    });
-    res.json({ inQueue });
+      if (parsed.userId === userId) {
+        activeSearches.push({ category: parsed.category ?? "ai-prompt", joinedAt: parsed.joinedAt });
+      }
+    }
+    res.json({ inQueue: activeSearches.length > 0, activeSearches });
   } catch (err) {
     next(err);
   }

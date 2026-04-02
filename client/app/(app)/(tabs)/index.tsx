@@ -19,7 +19,9 @@ export default function HomeScreen() {
   const { data: matchStatus } = useMatchStatus();
   const analyseText = useAnalyseText();
   const isSearching = useConversationsStore((s) => s.isSearching);
+  const activeSearches = useConversationsStore((s) => s.activeSearches);
   const setIsSearching = useConversationsStore((s) => s.setIsSearching);
+  const setActiveSearches = useConversationsStore((s) => s.setActiveSearches);
   const leaveMatch = useLeaveMatch();
 
   const [promptText, setPromptText] = useState("");
@@ -30,7 +32,11 @@ export default function HomeScreen() {
   useEffect(() => {
     getQueueStatus()
       .then((res) => {
-        setIsSearching(res.inQueue);
+        if (res.activeSearches) {
+          setActiveSearches(res.activeSearches);
+        } else {
+          setIsSearching(res.inQueue);
+        }
         if (res.pendingProposal) {
           setMatchProposal(res.pendingProposal);
         }
@@ -64,12 +70,39 @@ export default function HomeScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        {isSearching && (
+        {activeSearches.length > 0 ? (
+          activeSearches.map((search, i) => (
+            <View key={`${search.joinedAt}-${i}`} style={styles.searchingBanner}>
+              <View style={styles.searchingBannerContent}>
+                <View style={styles.searchingDot} />
+                <Text style={styles.searchingText}>
+                  {activeSearches.length > 1
+                    ? `Search ${i + 1}: Looking for a match`
+                    : "Looking for your match — we'll notify you"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  leaveMatch.mutate(search.category, {
+                    onSuccess: () => {
+                      const updated = activeSearches.filter((_, idx) => idx !== i);
+                      setActiveSearches(updated);
+                    },
+                  });
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        ) : isSearching ? (
           <View style={styles.searchingBanner}>
             <View style={styles.searchingBannerContent}>
               <View style={styles.searchingDot} />
               <Text style={styles.searchingText}>
-                Looking for your match — we'll notify you when we find someone
+                Looking for your match — we'll notify you
               </Text>
             </View>
             <TouchableOpacity
@@ -84,7 +117,7 @@ export default function HomeScreen() {
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        )}
+        ) : null}
 
         <MatchCounter status={matchStatus} />
 
