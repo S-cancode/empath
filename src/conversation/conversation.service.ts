@@ -32,14 +32,10 @@ export async function getNickname(
 const RECONNECT_REQUEST_TTL = 7 * 24 * 60 * 60;
 
 export async function getConversationsForUser(userId: string) {
-  // Get IDs of conversations this user has deleted
-  const deletedIds = await redis.smembers(`deleted:conversations:${userId}`);
-
   const conversations = await prisma.conversation.findMany({
     where: {
       status: "active",
       OR: [{ userAId: userId }, { userBId: userId }],
-      ...(deletedIds.length > 0 ? { id: { notIn: deletedIds } } : {}),
     },
     include: {
       userA: { select: { id: true, anonymousAlias: true } },
@@ -53,14 +49,26 @@ export async function getConversationsForUser(userId: string) {
     orderBy: { lastMessageAt: { sort: "desc", nulls: "last" } },
   });
 
-  return conversations.map((c) => ({
-    id: c.id,
-    partner: c.userAId === userId ? c.userB : c.userA,
-    category: c.category,
-    subTag: c.subTag,
-    lastMessageAt: c.lastMessageAt,
-    hasMessages: c.messages.length > 0,
-  }));
+  // Filter out conversations the user has deleted (unless new messages arrived after deletion)
+  const results = [];
+  for (const c of conversations) {
+    const deletedAt = await redis.get(`deleted:conv:${userId}:${c.id}`);
+    if (deletedAt) {
+      // Only show if there are messages after the deletion timestamp
+      const hasNewMessages = c.lastMessageAt && new Date(c.lastMessageAt) > new Date(deletedAt);
+      if (!hasNewMessages) continue;
+    }
+    results.push({
+      id: c.id,
+      partner: c.userAId === userId ? c.userB : c.userA,
+      category: c.category,
+      subTag: c.subTag,
+      lastMessageAt: c.lastMessageAt,
+      hasMessages: c.messages.length > 0,
+    });
+  }
+
+  return results;
 }
 
 export async function getConversation(conversationId: string, userId: string) {
@@ -83,8 +91,14 @@ export async function getMessages(
   // Validate participation
   await getConversation(conversationId, userId);
 
+  // If user deleted this conversation, only show messages after deletion
+  const deletedAt = await redis.get(`deleted:conv:${userId}:${conversationId}`);
+
   const messages = await prisma.message.findMany({
-    where: { conversationId },
+    where: {
+      conversationId,
+      ...(deletedAt ? { sentAt: { gt: new Date(deletedAt) } } : {}),
+    },
     orderBy: { sentAt: "desc" },
     take: limit,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
