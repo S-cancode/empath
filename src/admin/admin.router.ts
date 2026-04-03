@@ -47,7 +47,7 @@ adminRouter.get("/stats", async (_req: Request, res: Response) => {
 
 // Clear recent-match blocks (for testing)
 adminRouter.delete("/recent-matches", async (_req: Request, res: Response) => {
-  const keys = await redis.keys("recent-match:*");
+  const keys = await redis.keys("match:recent:*");
   if (keys.length > 0) {
     await redis.del(...keys);
   }
