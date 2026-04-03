@@ -148,7 +148,7 @@ export function setupChatGateway(io: Server): void {
     // Register presence
     await setOnline(userId, socket.id);
 
-    // Check for pending match proposal and re-send if one exists
+    // Check for pending match proposal and re-send if one exists (only if user hasn't accepted yet)
     try {
       const proposalId = await redis.get(`match:pending:${userId}`);
       if (proposalId) {
@@ -156,11 +156,14 @@ export function setupChatGateway(io: Server): void {
         if (proposalData) {
           const proposal = JSON.parse(proposalData);
           const isUserA = proposal.userAId === userId;
-          socket.emit("match:proposed", {
-            proposalId,
-            partnerSummary: isUserA ? proposal.userBSummary : proposal.userASummary,
-            partnerCategory: isUserA ? proposal.userBCategory : proposal.userACategory,
-          });
+          const alreadyAccepted = isUserA ? proposal.userAAccepted : proposal.userBAccepted;
+          if (!alreadyAccepted) {
+            socket.emit("match:proposed", {
+              proposalId,
+              partnerSummary: isUserA ? proposal.userBSummary : proposal.userASummary,
+              partnerCategory: isUserA ? proposal.userBCategory : proposal.userACategory,
+            });
+          }
         }
       }
     } catch (err) {

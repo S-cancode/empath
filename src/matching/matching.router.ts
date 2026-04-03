@@ -123,16 +123,20 @@ router.get("/queue-status", apiLimiter, authMiddleware, async (req, res, next) =
       if (proposalData) {
         const proposal = JSON.parse(proposalData);
         const isUserA = proposal.userAId === userId;
-        res.json({
-          inQueue: true,
-          activeSearches: [],
-          pendingProposal: {
-            proposalId,
-            partnerSummary: isUserA ? proposal.userBSummary : proposal.userASummary,
-            partnerCategory: isUserA ? proposal.userBCategory : proposal.userACategory,
-          },
-        });
-        return;
+        const alreadyAccepted = isUserA ? proposal.userAAccepted : proposal.userBAccepted;
+        if (!alreadyAccepted) {
+          res.json({
+            inQueue: true,
+            activeSearches: [],
+            pendingProposal: {
+              proposalId,
+              partnerSummary: isUserA ? proposal.userBSummary : proposal.userASummary,
+              partnerCategory: isUserA ? proposal.userBCategory : proposal.userACategory,
+            },
+          });
+          return;
+        }
+        // User already accepted — don't return proposal, fall through to show queue status
       }
     }
     const members = await redis.zrange("match:queue:global", 0, -1);
