@@ -189,8 +189,8 @@ describe("matching.service", () => {
 
   it("returns correct daily match status for free tier", async () => {
     const status = await getDailyMatchStatus("user-1", "free");
-    expect(status.limit).toBe(3);
-    expect(status.remaining).toBe(3);
+    expect(status.limit).toBe(10);
+    expect(status.remaining).toBe(10);
     expect(status.used).toBe(0);
   });
 

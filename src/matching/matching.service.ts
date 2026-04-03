@@ -235,17 +235,15 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
     createdAt: Date.now(),
   };
 
-  // Store proposal in Redis with 5-minute TTL
+  // Store proposal in Redis — persists until both respond
   await redis.set(
     `match:proposal:${proposalId}`,
     JSON.stringify(proposal),
-    "EX",
-    300,
   );
 
   // Mark both users as having a pending proposal (prevents re-matching)
-  await redis.set(`match:pending:${anchor.userId}`, proposalId, "EX", 300);
-  await redis.set(`match:pending:${matched.userId}`, proposalId, "EX", 300);
+  await redis.set(`match:pending:${anchor.userId}`, proposalId);
+  await redis.set(`match:pending:${matched.userId}`, proposalId);
 
   // Notify both users about the proposal
   emitNotification({
