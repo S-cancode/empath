@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authMiddleware } from "../auth/auth.middleware.js";
 import { ValidationError } from "../shared/errors.js";
 import { reportUser, blockUser } from "./safety.service.js";
+import { prisma } from "../lib/prisma.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -45,6 +46,35 @@ router.post("/block", async (req, res, next) => {
       throw new ValidationError("Invalid block payload");
     }
     await blockUser(req.user!.userId, parsed.data.blockedUserId);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/blocked", async (req, res, next) => {
+  try {
+    const blocked = await prisma.blockedUser.findMany({
+      where: { userId: req.user!.userId },
+      include: { blockedUser: { select: { id: true, anonymousAlias: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(blocked.map((b) => ({
+      id: b.id,
+      userId: b.blockedUser.id,
+      alias: b.blockedUser.anonymousAlias,
+      blockedAt: b.createdAt,
+    })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/block/:blockedUserId", async (req, res, next) => {
+  try {
+    await prisma.blockedUser.deleteMany({
+      where: { userId: req.user!.userId, blockedUserId: req.params.blockedUserId },
+    });
     res.json({ ok: true });
   } catch (err) {
     next(err);

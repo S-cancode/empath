@@ -100,6 +100,16 @@ export default function AppLayout() {
           options={{ headerShown: false, presentation: "modal" }}
         />
         <Stack.Screen
+          name="blocked"
+          options={{
+            title: "Blocked Users",
+            headerBackTitle: "Back",
+            headerStyle: { backgroundColor: "transparent" },
+            headerShadowVisible: false,
+            headerTintColor: colors.text,
+          }}
+        />
+        <Stack.Screen
           name="archived/index"
           options={{
             title: "Archived",
