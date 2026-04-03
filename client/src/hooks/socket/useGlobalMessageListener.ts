@@ -85,6 +85,8 @@ export function useGlobalMessageListener() {
 
     const checkPendingProposal = async () => {
       try {
+        // Don't re-show proposal if user already accepted
+        if (useConversationsStore.getState().pendingMatchAccepted) return;
         const { data } = await apiClient.get("/match/queue-status");
         if (data.pendingProposal) {
           setIsSearching(false);
@@ -120,6 +122,8 @@ export function useGlobalMessageListener() {
       partnerSummary: string;
       partnerCategory: string;
     }) => {
+      // Don't re-show if user already accepted a proposal
+      if (useConversationsStore.getState().pendingMatchAccepted) return;
       setIsSearching(false);
       setMatchProposal(data);
       refreshSearches();
