@@ -11,7 +11,7 @@ interface TierCardProps {
 }
 
 const tierDescriptions: Record<Tier, string> = {
-  free: "3 matches per day",
+  free: "10 matches per day",
   premium: "10 matches per day, sub-tags",
   plus: "Unlimited matches, all features",
 };

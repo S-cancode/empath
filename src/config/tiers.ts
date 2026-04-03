@@ -19,7 +19,7 @@ export interface TierLimits {
 
 export const tierConfig: Record<SubscriptionTier, TierLimits> = {
   [SubscriptionTier.FREE]: {
-    dailyNewMatches: 3,
+    dailyNewMatches: 10,
     liveSessionDurationMs: 20 * 60 * 1000,
     extendedDurationMs: 0,
     canExtendSession: false,
