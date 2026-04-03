@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback } from "react";
+// useState still used for selectedIds
 import {
   View,
   Text,
@@ -158,7 +159,8 @@ export default function InboxScreen() {
   const { data: archivedConversations } = useArchivedConversations();
   const archiveConversation = useArchiveConversation();
   const archivedCount = archivedConversations?.length ?? 0;
-  const [editMode, setEditMode] = useState(false);
+  const editMode = useConversationsStore((s) => s.chatEditMode);
+  const setChatEditMode = useConversationsStore((s) => s.setChatEditMode);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const toggleSelect = useCallback((id: string) => {
@@ -171,7 +173,7 @@ export default function InboxScreen() {
   }, []);
 
   const exitEditMode = () => {
-    setEditMode(false);
+    setChatEditMode(false);
     setSelectedIds(new Set());
   };
 
@@ -208,13 +210,6 @@ export default function InboxScreen() {
   return (
     <SafeAreaView style={styles.container} edges={[]}>
       <AppBackground />
-
-      {/* Header with Edit/Done */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={editMode ? exitEditMode : () => setEditMode(true)}>
-          <Text style={styles.headerButton}>{editMode ? "Done" : "Edit"}</Text>
-        </TouchableOpacity>
-      </View>
 
       <FlatList
         data={conversations}
@@ -282,18 +277,6 @@ export default function InboxScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 4,
-  },
-  headerButton: {
-    fontSize: 17,
-    fontFamily: "Inter_400Regular",
-    color: colors.primary,
   },
   archivedRow: {
     flexDirection: "row",

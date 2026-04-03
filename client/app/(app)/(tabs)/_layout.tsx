@@ -1,4 +1,5 @@
 import { Tabs } from "expo-router";
+import { TouchableOpacity, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme/colors";
 import { useConversationsStore } from "@/stores/conversations.store";
@@ -6,6 +7,8 @@ import { useConversationsStore } from "@/stores/conversations.store";
 export default function TabsLayout() {
   const unreadCounts = useConversationsStore((s) => s.unreadCounts);
   const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+  const chatEditMode = useConversationsStore((s) => s.chatEditMode);
+  const setChatEditMode = useConversationsStore((s) => s.setChatEditMode);
 
   return (
     <Tabs
@@ -61,6 +64,14 @@ export default function TabsLayout() {
             />
           ),
           tabBarBadge: totalUnread > 0 ? totalUnread : undefined,
+          headerLeft: () => (
+            <TouchableOpacity
+              onPress={() => setChatEditMode(!chatEditMode)}
+              style={s.headerBtn}
+            >
+              <Text style={s.headerBtnText}>{chatEditMode ? "Done" : "Edit"}</Text>
+            </TouchableOpacity>
+          ),
         }}
       />
       <Tabs.Screen
@@ -79,3 +90,18 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const s = StyleSheet.create({
+  headerBtn: {
+    marginLeft: 16,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  headerBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
+    color: "#FFFFFF",
+  },
+});

@@ -30,6 +30,7 @@ interface ConversationsState {
   matchProposal: MatchProposal | null;
   isSearching: boolean;
   activeSearches: { category: string; joinedAt: number }[];
+  chatEditMode: boolean;
 
   addOptimisticMessage: (msg: OptimisticMessage) => void;
   confirmMessage: (
@@ -49,6 +50,7 @@ interface ConversationsState {
   setMatchProposal: (proposal: MatchProposal | null) => void;
   setIsSearching: (searching: boolean) => void;
   setActiveSearches: (searches: { category: string; joinedAt: number }[]) => void;
+  setChatEditMode: (editing: boolean) => void;
 }
 
 export const useConversationsStore = create<ConversationsState>((set, get) => ({
@@ -61,6 +63,7 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   matchProposal: null,
   isSearching: false,
   activeSearches: [],
+  chatEditMode: false,
 
   addOptimisticMessage: (msg) =>
     set((state) => ({
@@ -167,4 +170,5 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   setMatchProposal: (proposal) => set({ matchProposal: proposal }),
   setIsSearching: (searching) => set({ isSearching: searching }),
   setActiveSearches: (searches) => set({ activeSearches: searches, isSearching: searches.length > 0 }),
+  setChatEditMode: (editing) => set({ chatEditMode: editing }),
 }));
