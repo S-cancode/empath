@@ -43,7 +43,7 @@ export function MatchProposalModal({
         <View style={styles.card}>
           <Text style={styles.emoji}>&#x1F91D;</Text>
           <Text style={styles.title}>We found you a match!</Text>
-          <Text style={styles.promptLabel}>Here's what they shared:</Text>
+          <Text style={styles.promptLabel}>Here's a summary of their situation:</Text>
 
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>{partnerCategory}</Text>
