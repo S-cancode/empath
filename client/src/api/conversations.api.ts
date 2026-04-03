@@ -53,6 +53,12 @@ export async function archiveConversation(
   await apiClient.put(`/conversations/${conversationId}/archive`);
 }
 
+export async function deleteConversation(
+  conversationId: string
+): Promise<void> {
+  await apiClient.delete(`/conversations/${conversationId}`);
+}
+
 export async function reconnect(
   conversationId: string
 ): Promise<ReconnectResponse> {

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { prisma } from "../lib/prisma.js";
 import {
   getConversationsForUser,
   getMessages,
@@ -76,6 +77,24 @@ router.put("/:id/messages/read", async (req, res, next) => {
       throw new ValidationError("upToMessageId is required");
     }
     await markRead(req.params.id, req.user!.userId, parsed.data.upToMessageId);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/:id", async (req, res, next) => {
+  try {
+    const conversation = await prisma.conversation.findUnique({ where: { id: req.params.id } });
+    if (!conversation) { res.status(404).json({ error: "Not found" }); return; }
+    const userId = req.user!.userId;
+    if (conversation.userAId !== userId && conversation.userBId !== userId) {
+      res.status(403).json({ error: "Not a participant" }); return;
+    }
+    // Delete only this user's messages
+    await prisma.message.deleteMany({ where: { conversationId: req.params.id, senderId: userId } });
+    // Archive the conversation (don't hard-delete — other user may still need it)
+    await prisma.conversation.update({ where: { id: req.params.id }, data: { status: "archived" } });
     res.json({ ok: true });
   } catch (err) {
     next(err);

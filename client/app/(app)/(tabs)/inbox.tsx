@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   RefreshControl,
   Animated,
+  Alert,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { useRouter } from "expo-router";
@@ -17,9 +18,12 @@ import { useConversations } from "@/hooks/queries/useConversations";
 import { useConversationsStore } from "@/stores/conversations.store";
 import { useArchiveConversation } from "@/hooks/mutations/useArchiveConversation";
 import { useArchivedConversations } from "@/hooks/queries/useArchivedConversations";
+import { deleteConversation } from "@/api/conversations.api";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "@/components/ui/Avatar";
 import { AppBackground } from "@/components/ui/AppBackground";
+import { queryClient } from "@/providers/QueryProvider";
+import { queryKeys } from "@/lib/query-keys";
 import type { Conversation } from "@/types/api";
 
 function formatTime(dateStr: string | null) {
@@ -39,7 +43,7 @@ function formatTime(dateStr: string | null) {
 }
 
 function renderRightActions(
-  progress: Animated.AnimatedInterpolation<number>,
+  _progress: Animated.AnimatedInterpolation<number>,
   dragX: Animated.AnimatedInterpolation<number>,
 ) {
   const scale = dragX.interpolate({
@@ -66,10 +70,16 @@ function ConversationRow({
   item,
   onPress,
   onArchive,
+  editMode,
+  selected,
+  onToggleSelect,
 }: {
   item: Conversation;
   onPress: () => void;
   onArchive: () => void;
+  editMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const unread = useConversationsStore((s) => s.unreadCounts[item.id] ?? 0);
   const isOnline = useConversationsStore((s) => s.presence[item.id]);
@@ -84,6 +94,50 @@ function ConversationRow({
     swipeableRef.current?.close();
   };
 
+  const rowContent = (
+    <TouchableOpacity
+      style={[styles.row, hasUnread && styles.rowUnread]}
+      onPress={editMode ? onToggleSelect : onPress}
+      activeOpacity={0.7}
+    >
+      {editMode && (
+        <View style={styles.checkboxContainer}>
+          {selected ? (
+            <View style={styles.checkboxSelected}>
+              <Ionicons name="checkmark" size={16} color="#fff" />
+            </View>
+          ) : (
+            <View style={styles.checkboxEmpty} />
+          )}
+        </View>
+      )}
+      <View style={styles.avatarContainer}>
+        <Avatar alias={displayName} size={50} />
+        {isOnline && <View style={styles.onlineDot} />}
+      </View>
+      <View style={styles.rowContent}>
+        <View style={styles.rowTop}>
+          <Text style={[styles.alias, hasUnread && styles.aliasUnread]} numberOfLines={1}>
+            {displayName}
+          </Text>
+          <Text style={[styles.time, hasUnread && styles.timeUnread]}>
+            {formatTime(item.lastMessageAt)}
+          </Text>
+        </View>
+        <Text style={[styles.preview, hasUnread && styles.previewUnread]} numberOfLines={1}>
+          {item.category.replace("-", " ")}
+        </Text>
+      </View>
+      {hasUnread && !editMode && (
+        <View style={styles.unreadBadge}>
+          <Text style={styles.unreadCount}>{unread > 9 ? "9+" : unread}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  if (editMode) return rowContent;
+
   return (
     <Swipeable
       ref={swipeableRef}
@@ -93,34 +147,7 @@ function ConversationRow({
       overshootRight={false}
       friction={1.5}
     >
-      <TouchableOpacity
-        style={[styles.row, hasUnread && styles.rowUnread]}
-        onPress={onPress}
-        activeOpacity={0.7}
-      >
-        <View style={styles.avatarContainer}>
-          <Avatar alias={displayName} size={50} />
-          {isOnline && <View style={styles.onlineDot} />}
-        </View>
-        <View style={styles.rowContent}>
-          <View style={styles.rowTop}>
-            <Text style={[styles.alias, hasUnread && styles.aliasUnread]} numberOfLines={1}>
-              {displayName}
-            </Text>
-            <Text style={[styles.time, hasUnread && styles.timeUnread]}>
-              {formatTime(item.lastMessageAt)}
-            </Text>
-          </View>
-          <Text style={[styles.preview, hasUnread && styles.previewUnread]} numberOfLines={1}>
-            {item.category.replace("-", " ")}
-          </Text>
-        </View>
-        {hasUnread && (
-          <View style={styles.unreadBadge}>
-            <Text style={styles.unreadCount}>{unread > 9 ? "9+" : unread}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
+      {rowContent}
     </Swipeable>
   );
 }
@@ -131,10 +158,63 @@ export default function InboxScreen() {
   const { data: archivedConversations } = useArchivedConversations();
   const archiveConversation = useArchiveConversation();
   const archivedCount = archivedConversations?.length ?? 0;
+  const [editMode, setEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const exitEditMode = () => {
+    setEditMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleArchiveSelected = () => {
+    for (const id of selectedIds) {
+      archiveConversation.mutate(id);
+    }
+    exitEditMode();
+  };
+
+  const handleDeleteSelected = () => {
+    const count = selectedIds.size;
+    Alert.alert(
+      "Delete conversations",
+      `Delete ${count} conversation${count > 1 ? "s" : ""}? Your messages will be permanently removed.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            for (const id of selectedIds) {
+              try { await deleteConversation(id); } catch {}
+            }
+            queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+            queryClient.invalidateQueries({ queryKey: queryKeys.archivedConversations });
+            exitEditMode();
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={[]}>
       <AppBackground />
+
+      {/* Header with Edit/Done */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={editMode ? exitEditMode : () => setEditMode(true)}>
+          <Text style={styles.headerButton}>{editMode ? "Done" : "Edit"}</Text>
+        </TouchableOpacity>
+      </View>
 
       <FlatList
         data={conversations}
@@ -144,6 +224,9 @@ export default function InboxScreen() {
             item={item}
             onPress={() => router.push(`/(app)/chat/${item.id}`)}
             onArchive={() => archiveConversation.mutate(item.id)}
+            editMode={editMode}
+            selected={selectedIds.has(item.id)}
+            onToggleSelect={() => toggleSelect(item.id)}
           />
         )}
         refreshControl={
@@ -158,15 +241,17 @@ export default function InboxScreen() {
           conversations?.length === 0 && styles.emptyContainer,
         ]}
         ListHeaderComponent={
-          <TouchableOpacity
-            style={styles.archivedRow}
-            onPress={() => router.push("/(app)/archived")}
-            activeOpacity={0.6}
-          >
-            <Ionicons name="archive-outline" size={22} color={colors.textSecondary} />
-            <Text style={styles.archivedRowText}>Archived</Text>
-            <Text style={styles.archivedRowCount}>{archivedCount}</Text>
-          </TouchableOpacity>
+          !editMode ? (
+            <TouchableOpacity
+              style={styles.archivedRow}
+              onPress={() => router.push("/(app)/archived")}
+              activeOpacity={0.6}
+            >
+              <Ionicons name="archive-outline" size={22} color={colors.textSecondary} />
+              <Text style={styles.archivedRowText}>Archived</Text>
+              <Text style={styles.archivedRowCount}>{archivedCount}</Text>
+            </TouchableOpacity>
+          ) : null
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
@@ -178,6 +263,18 @@ export default function InboxScreen() {
           </View>
         }
       />
+
+      {/* Bottom action bar in edit mode */}
+      {editMode && selectedIds.size > 0 && (
+        <View style={styles.bottomBar}>
+          <TouchableOpacity style={styles.bottomAction} onPress={handleArchiveSelected}>
+            <Text style={styles.bottomActionText}>Archive</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.bottomAction} onPress={handleDeleteSelected}>
+            <Text style={[styles.bottomActionText, { color: colors.error }]}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -185,6 +282,18 @@ export default function InboxScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  headerButton: {
+    fontSize: 17,
+    fontFamily: "Inter_400Regular",
+    color: colors.primary,
   },
   archivedRow: {
     flexDirection: "row",
@@ -207,7 +316,6 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingHorizontal: 16,
-    paddingTop: 12,
   },
   row: {
     flexDirection: "row",
@@ -225,6 +333,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight + "18",
     borderLeftWidth: 3,
     borderLeftColor: colors.primary,
+  },
+  checkboxContainer: {
+    marginRight: 12,
+  },
+  checkboxEmpty: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.textTertiary,
+  },
+  checkboxSelected: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarContainer: {
     position: "relative",
@@ -327,5 +453,23 @@ const styles = StyleSheet.create({
     ...typography.bodySmall,
     color: colors.textSecondary,
     textAlign: "center",
+  },
+  bottomBar: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingVertical: 14,
+    paddingBottom: 28,
+    backgroundColor: colors.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.borderLight,
+  },
+  bottomAction: {
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+  },
+  bottomActionText: {
+    fontSize: 16,
+    fontFamily: "Inter_500Medium",
+    color: colors.primary,
   },
 });
