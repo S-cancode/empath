@@ -148,14 +148,15 @@ function buildMatchContext(
 
 export async function tryMatchGlobal(): Promise<MatchResult | null> {
   const members = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
-  if (members.length < 2) return null;
+  if (members.length < 2) { console.log(`[match] Queue has ${members.length} members, need 2+`); return null; }
 
   const candidates = members.map((m) => JSON.parse(m) as MatchRequest);
   const anchor = candidates[0];
+  console.log(`[match] Trying match for anchor=${anchor.userId}, ${candidates.length} candidates in queue`);
 
   // Skip if anchor already has a pending proposal
   const anchorPending = await redis.get(`match:pending:${anchor.userId}`);
-  if (anchorPending) return null;
+  if (anchorPending) { console.log(`[match] Anchor has pending proposal, skipping`); return null; }
 
   // Query pgvector for cosine similarities against anchor
   const similarities = await prisma.$queryRawUnsafe<
@@ -172,16 +173,18 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
     anchor.userId,
   );
 
+  console.log(`[match] pgvector returned ${similarities.length} similarities`);
+
   let bestMatch: { userId: string; score: number; memberIndex: number; similarity: number } | null = null;
 
   for (const sim of similarities) {
     const candidateIndex = candidates.findIndex((c) => c.userId === sim.user_id);
-    if (candidateIndex === -1) continue; // stale Postgres entry
+    if (candidateIndex === -1) { console.log(`[match] Candidate ${sim.user_id} not in Redis queue (stale)`); continue; }
 
     const candidate = candidates[candidateIndex];
 
-    if (await isBlocked(anchor.userId, candidate.userId)) continue;
-    if (await wereRecentlyMatched(anchor.userId, candidate.userId)) continue;
+    if (await isBlocked(anchor.userId, candidate.userId)) { console.log(`[match] Blocked: ${anchor.userId} <-> ${candidate.userId}`); continue; }
+    if (await wereRecentlyMatched(anchor.userId, candidate.userId)) { console.log(`[match] Recently matched: ${anchor.userId} <-> ${candidate.userId}`); continue; }
 
     // Hybrid score: 90% cosine similarity + 10% wait time bonus
     const cosinePart = sim.similarity * 0.9;
@@ -195,7 +198,8 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
     }
   }
 
-  if (!bestMatch || bestMatch.score < MIN_HYBRID_SCORE) return null;
+  if (!bestMatch) { console.log(`[match] No valid candidate found`); return null; }
+  if (bestMatch.score < MIN_HYBRID_SCORE) { console.log(`[match] Best score ${bestMatch.score} below threshold ${MIN_HYBRID_SCORE}`); return null; }
 
   const matched = candidates[bestMatch.memberIndex];
 
