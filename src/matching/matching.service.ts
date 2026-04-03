@@ -151,12 +151,15 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
   if (members.length < 2) { console.log(`[match] Queue has ${members.length} members, need 2+`); return null; }
 
   const candidates = members.map((m) => JSON.parse(m) as MatchRequest);
-  const anchor = candidates[0];
+
+  // Try each candidate as anchor until one matches
+  for (let anchorIdx = 0; anchorIdx < candidates.length; anchorIdx++) {
+  const anchor = candidates[anchorIdx];
   console.log(`[match] Trying match for anchor=${anchor.userId}, ${candidates.length} candidates in queue`);
 
   // Skip if anchor already has a pending proposal
   const anchorPending = await redis.get(`match:pending:${anchor.userId}`);
-  if (anchorPending) { console.log(`[match] Anchor has pending proposal, skipping`); return null; }
+  if (anchorPending) { console.log(`[match] Anchor has pending proposal, skipping`); continue; }
 
   // Query pgvector for cosine similarities against anchor
   const similarities = await prisma.$queryRawUnsafe<
@@ -198,13 +201,13 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
     }
   }
 
-  if (!bestMatch) { console.log(`[match] No valid candidate found`); return null; }
-  if (bestMatch.score < MIN_HYBRID_SCORE) { console.log(`[match] Best score ${bestMatch.score} below threshold ${MIN_HYBRID_SCORE}`); return null; }
+  if (!bestMatch) { console.log(`[match] No valid candidate found for anchor ${anchor.userId}`); continue; }
+  if (bestMatch.score < MIN_HYBRID_SCORE) { console.log(`[match] Best score ${bestMatch.score} below threshold ${MIN_HYBRID_SCORE}`); continue; }
 
   const matched = candidates[bestMatch.memberIndex];
 
   // Remove both from Redis queue
-  await redis.zrem(GLOBAL_QUEUE_KEY, members[0], members[bestMatch.memberIndex]);
+  await redis.zrem(GLOBAL_QUEUE_KEY, members[anchorIdx], members[bestMatch.memberIndex]);
 
   // Build proposal instead of creating conversation directly
   // Note: do NOT remove from queue, increment daily counts, or mark as recent
@@ -273,6 +276,9 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
     category: displayCategory,
     subTag: proposal.subTag ?? undefined,
   };
+  } // end anchor loop
+
+  return null;
 }
 
 // --- Match proposal accept/decline ---
