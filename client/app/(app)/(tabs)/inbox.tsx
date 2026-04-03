@@ -236,17 +236,16 @@ export default function InboxScreen() {
           conversations?.length === 0 && styles.emptyContainer,
         ]}
         ListHeaderComponent={
-          !editMode ? (
-            <TouchableOpacity
-              style={styles.archivedRow}
-              onPress={() => router.push("/(app)/archived")}
-              activeOpacity={0.6}
-            >
-              <Ionicons name="archive-outline" size={22} color={colors.textSecondary} />
-              <Text style={styles.archivedRowText}>Archived</Text>
-              <Text style={styles.archivedRowCount}>{archivedCount}</Text>
-            </TouchableOpacity>
-          ) : null
+          <TouchableOpacity
+            style={[styles.archivedRow, editMode && styles.archivedRowDisabled]}
+            onPress={editMode ? undefined : () => router.push("/(app)/archived")}
+            activeOpacity={editMode ? 1 : 0.6}
+            disabled={editMode}
+          >
+            <Ionicons name="archive-outline" size={22} color={editMode ? colors.textTertiary : colors.textSecondary} />
+            <Text style={[styles.archivedRowText, editMode && styles.archivedRowTextDisabled]}>Archived</Text>
+            <Text style={[styles.archivedRowCount, editMode && styles.archivedRowTextDisabled]}>{archivedCount}</Text>
+          </TouchableOpacity>
         }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
@@ -295,6 +294,12 @@ const styles = StyleSheet.create({
   archivedRowCount: {
     fontSize: 15,
     fontFamily: "Inter_400Regular",
+    color: colors.textTertiary,
+  },
+  archivedRowDisabled: {
+    opacity: 0.4,
+  },
+  archivedRowTextDisabled: {
     color: colors.textTertiary,
   },
   list: {
