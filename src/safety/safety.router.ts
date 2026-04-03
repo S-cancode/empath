@@ -72,14 +72,27 @@ router.get("/blocked", async (req, res, next) => {
 
 router.delete("/block/:blockedUserId", async (req, res, next) => {
   try {
+    const userId = req.user!.userId;
+    const blockedUserId = req.params.blockedUserId;
     // Delete all block records between these two users (both directions)
     await prisma.blockedUser.deleteMany({
       where: {
         OR: [
-          { userId: req.user!.userId, blockedUserId: req.params.blockedUserId },
-          { userId: req.params.blockedUserId, blockedUserId: req.user!.userId },
+          { userId, blockedUserId },
+          { userId: blockedUserId, blockedUserId: userId },
         ],
       },
+    });
+    // Reactivate any blocked conversations between these two users
+    await prisma.conversation.updateMany({
+      where: {
+        status: "blocked",
+        OR: [
+          { userAId: userId, userBId: blockedUserId },
+          { userAId: blockedUserId, userBId: userId },
+        ],
+      },
+      data: { status: "archived" },
     });
     res.json({ ok: true });
   } catch (err) {
