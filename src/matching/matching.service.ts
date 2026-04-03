@@ -148,7 +148,7 @@ function buildMatchContext(
 
 export async function tryMatchGlobal(): Promise<MatchResult | null> {
   const members = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
-  if (members.length < 2) { console.log(`[match] Queue has ${members.length} members, need 2+`); return null; }
+  if (members.length < 2) return null;
 
   const candidates = members.map((m) => JSON.parse(m) as MatchRequest);
 
