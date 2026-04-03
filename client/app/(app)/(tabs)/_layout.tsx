@@ -34,7 +34,7 @@ export default function TabsLayout() {
         tabBarBadgeStyle: {
           backgroundColor: colors.primary,
         },
-        headerStyle: { backgroundColor: colors.primary },
+        headerStyle: { backgroundColor: colors.primary, height: 110 },
         headerShadowVisible: false,
         headerTitleStyle: { fontFamily: "Inter_700Bold", color: "#FFFFFF" },
       }}
