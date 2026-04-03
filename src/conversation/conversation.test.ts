@@ -21,6 +21,8 @@ vi.mock("../lib/redis.js", () => ({
     get: vi.fn(async (key: string) => redisStrings.get(key) ?? null),
     set: vi.fn(async (key: string, value: string) => { redisStrings.set(key, value); }),
     del: vi.fn(async (key: string) => { redisStrings.delete(key); }),
+    smembers: vi.fn(async () => []),
+    sadd: vi.fn(async () => 1),
   },
 }));
 

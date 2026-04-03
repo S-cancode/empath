@@ -32,10 +32,14 @@ export async function getNickname(
 const RECONNECT_REQUEST_TTL = 7 * 24 * 60 * 60;
 
 export async function getConversationsForUser(userId: string) {
+  // Get IDs of conversations this user has deleted
+  const deletedIds = await redis.smembers(`deleted:conversations:${userId}`);
+
   const conversations = await prisma.conversation.findMany({
     where: {
       status: "active",
       OR: [{ userAId: userId }, { userBId: userId }],
+      ...(deletedIds.length > 0 ? { id: { notIn: deletedIds } } : {}),
     },
     include: {
       userA: { select: { id: true, anonymousAlias: true } },

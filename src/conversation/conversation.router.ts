@@ -91,10 +91,11 @@ router.delete("/:id", async (req, res, next) => {
     if (conversation.userAId !== userId && conversation.userBId !== userId) {
       res.status(403).json({ error: "Not a participant" }); return;
     }
-    // Delete only this user's messages
+    // Delete this user's messages
     await prisma.message.deleteMany({ where: { conversationId: req.params.id, senderId: userId } });
-    // Archive the conversation (don't hard-delete — other user may still need it)
-    await prisma.conversation.update({ where: { id: req.params.id }, data: { status: "archived" } });
+    // Mark conversation as deleted for this user (stored in Redis)
+    const { redis } = await import("../lib/redis.js");
+    await redis.sadd(`deleted:conversations:${userId}`, req.params.id);
     res.json({ ok: true });
   } catch (err) {
     next(err);
