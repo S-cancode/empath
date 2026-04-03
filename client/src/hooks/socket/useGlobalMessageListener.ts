@@ -108,6 +108,13 @@ export function useGlobalMessageListener() {
   useEffect(() => {
     if (!socket) return;
 
+    const refreshSearches = async () => {
+      try {
+        const { data } = await apiClient.get("/match/queue-status");
+        useConversationsStore.getState().setActiveSearches(data.activeSearches ?? []);
+      } catch {}
+    };
+
     const proposalHandler = (data: {
       proposalId: string;
       partnerSummary: string;
@@ -115,17 +122,20 @@ export function useGlobalMessageListener() {
     }) => {
       setIsSearching(false);
       setMatchProposal(data);
+      refreshSearches();
     };
 
     const confirmedHandler = (data: { conversationId: string }) => {
       setMatchProposal(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+      refreshSearches();
     };
 
     const declinedHandler = () => {
       // Partner declined — back to searching
       setMatchProposal(null);
       setIsSearching(true);
+      refreshSearches();
     };
 
     socket.on("match:proposed" as any, proposalHandler);
