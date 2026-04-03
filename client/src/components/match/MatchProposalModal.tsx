@@ -43,6 +43,7 @@ export function MatchProposalModal({
         <View style={styles.card}>
           <Text style={styles.emoji}>&#x1F91D;</Text>
           <Text style={styles.title}>We found you a match!</Text>
+          <Text style={styles.promptLabel}>Here's what they shared:</Text>
 
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>{partnerCategory}</Text>
@@ -102,6 +103,13 @@ const styles = StyleSheet.create({
   title: {
     ...typography.h2,
     color: colors.text,
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  promptLabel: {
+    fontSize: 16,
+    fontFamily: "Inter_500Medium",
+    color: colors.textSecondary,
     textAlign: "center",
     marginBottom: 16,
   },
