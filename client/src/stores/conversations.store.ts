@@ -31,6 +31,7 @@ interface ConversationsState {
   isSearching: boolean;
   activeSearches: { category: string; joinedAt: number }[];
   chatEditMode: boolean;
+  pendingMatchAccepted: boolean;
 
   addOptimisticMessage: (msg: OptimisticMessage) => void;
   confirmMessage: (
@@ -51,6 +52,7 @@ interface ConversationsState {
   setIsSearching: (searching: boolean) => void;
   setActiveSearches: (searches: { category: string; joinedAt: number }[]) => void;
   setChatEditMode: (editing: boolean) => void;
+  setPendingMatchAccepted: (pending: boolean) => void;
 }
 
 export const useConversationsStore = create<ConversationsState>((set, get) => ({
@@ -64,6 +66,7 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   isSearching: false,
   activeSearches: [],
   chatEditMode: false,
+  pendingMatchAccepted: false,
 
   addOptimisticMessage: (msg) =>
     set((state) => ({
@@ -171,4 +174,5 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   setIsSearching: (searching) => set({ isSearching: searching }),
   setActiveSearches: (searches) => set({ activeSearches: searches, isSearching: searches.length > 0 }),
   setChatEditMode: (editing) => set({ chatEditMode: editing }),
+  setPendingMatchAccepted: (pending) => set({ pendingMatchAccepted: pending }),
 }));

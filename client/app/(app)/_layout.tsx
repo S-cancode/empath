@@ -49,6 +49,7 @@ export default function AppLayout() {
       setAccepting(false);
       setMatchProposal(null);
       setIsSearching(false);
+      useConversationsStore.getState().setPendingMatchAccepted(false);
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       router.push(`/(app)/chat/${data.conversationId}`);
     };
@@ -61,10 +62,12 @@ export default function AppLayout() {
     setAccepting(true);
     socket.emit("match:accept" as any, { proposalId: matchProposal.proposalId });
 
-    // Brief delay then dismiss modal — we've let the other user know
+    // Brief delay then dismiss modal and go to home with pending state
     setTimeout(() => {
       setAccepting(false);
       setMatchProposal(null);
+      useConversationsStore.getState().setPendingMatchAccepted(true);
+      router.push("/(app)/(tabs)");
     }, 1500);
   };
 

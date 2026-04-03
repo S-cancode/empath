@@ -22,6 +22,7 @@ export default function HomeScreen() {
   const activeSearches = useConversationsStore((s) => s.activeSearches);
   const setIsSearching = useConversationsStore((s) => s.setIsSearching);
   const setActiveSearches = useConversationsStore((s) => s.setActiveSearches);
+  const pendingMatchAccepted = useConversationsStore((s) => s.pendingMatchAccepted);
   const leaveMatch = useLeaveMatch();
 
   const [promptText, setPromptText] = useState("");
@@ -70,6 +71,17 @@ export default function HomeScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
+        {pendingMatchAccepted && (
+          <View style={styles.matchFoundBanner}>
+            <View style={styles.searchingBannerContent}>
+              <Text style={styles.matchFoundEmoji}>&#x1F91D;</Text>
+              <Text style={styles.matchFoundText}>
+                We found you a match — we'll notify you when they respond
+              </Text>
+            </View>
+          </View>
+        )}
+
         {activeSearches.length > 0 ? (
           activeSearches.map((search, i) => (
             <View key={`${search.joinedAt}-${i}`} style={styles.searchingBanner}>
@@ -195,6 +207,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
     color: colors.primary,
+  },
+  matchFoundBanner: {
+    backgroundColor: "#10B981" + "15",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#10B981" + "30",
+  },
+  matchFoundEmoji: {
+    fontSize: 18,
+  },
+  matchFoundText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#10B981",
   },
   errorBanner: {
     backgroundColor: colors.error + "15",
