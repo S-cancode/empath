@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, ScrollView, StyleSheet, Text, Keyboard, TouchableOpacity } from "react-native";
+import { View, ScrollView, StyleSheet, Text, Keyboard, TouchableOpacity, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "@/theme/colors";
@@ -10,6 +10,7 @@ import { useLeaveMatch } from "@/hooks/mutations/useLeaveMatch";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useConversationsStore } from "@/stores/conversations.store";
 import { getQueueStatus } from "@/api/match.api";
+import { getConversations } from "@/api/conversations.api";
 import { MatchCounter } from "@/components/home/MatchCounter";
 import { PromptInput } from "@/components/home/PromptInput";
 import { UpgradePrompt } from "@/components/ui/UpgradePrompt";
@@ -47,8 +48,19 @@ export default function HomeScreen() {
         const wasPending = await AsyncStorage.getItem("pending_match_accepted");
         if (wasPending === "true") {
           if (!res.inQueue && !res.pendingProposal) {
-            // Match was confirmed while app was closed — clear the banner
+            // Match was confirmed while app was closed — navigate to chat
             useConversationsStore.getState().setPendingMatchAccepted(false);
+            try {
+              const convos = await getConversations();
+              if (convos.length > 0) {
+                const newest = convos[0]; // sorted by lastMessageAt desc
+                Alert.alert(
+                  "You have a match!",
+                  "Your match accepted — let's start chatting.",
+                  [{ text: "Go to chat", onPress: () => router.push(`/(app)/chat/${newest.id}`) }],
+                );
+              }
+            } catch {}
           } else {
             useConversationsStore.getState().setPendingMatchAccepted(true);
           }
