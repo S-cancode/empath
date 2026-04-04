@@ -174,5 +174,12 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   setIsSearching: (searching) => set({ isSearching: searching }),
   setActiveSearches: (searches) => set({ activeSearches: searches, isSearching: searches.length > 0 }),
   setChatEditMode: (editing) => set({ chatEditMode: editing }),
-  setPendingMatchAccepted: (pending) => set({ pendingMatchAccepted: pending }),
+  setPendingMatchAccepted: (pending) => {
+    set({ pendingMatchAccepted: pending });
+    if (pending) {
+      AsyncStorage.setItem("pending_match_accepted", "true").catch(() => {});
+    } else {
+      AsyncStorage.removeItem("pending_match_accepted").catch(() => {});
+    }
+  },
 }));

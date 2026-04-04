@@ -7,6 +7,7 @@ import { typography } from "@/theme/typography";
 import { useMatchStatus } from "@/hooks/queries/useMatchStatus";
 import { useAnalyseText } from "@/hooks/mutations/useAnalyseText";
 import { useLeaveMatch } from "@/hooks/mutations/useLeaveMatch";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useConversationsStore } from "@/stores/conversations.store";
 import { getQueueStatus } from "@/api/match.api";
 import { MatchCounter } from "@/components/home/MatchCounter";
@@ -31,6 +32,13 @@ export default function HomeScreen() {
   const setMatchProposal = useConversationsStore((s) => s.setMatchProposal);
 
   useEffect(() => {
+    // Restore pending match state from AsyncStorage
+    AsyncStorage.getItem("pending_match_accepted").then((val) => {
+      if (val === "true") {
+        useConversationsStore.getState().setPendingMatchAccepted(true);
+      }
+    }).catch(() => {});
+
     getQueueStatus()
       .then((res) => {
         if (res.activeSearches) {
