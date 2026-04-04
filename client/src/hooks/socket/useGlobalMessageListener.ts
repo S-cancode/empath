@@ -131,6 +131,7 @@ export function useGlobalMessageListener() {
 
     const confirmedHandler = (data: { conversationId: string }) => {
       setMatchProposal(null);
+      useConversationsStore.getState().setPendingMatchAccepted(false);
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       refreshSearches();
     };
