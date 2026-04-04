@@ -32,15 +32,8 @@ export default function HomeScreen() {
   const setMatchProposal = useConversationsStore((s) => s.setMatchProposal);
 
   useEffect(() => {
-    // Restore pending match state from AsyncStorage
-    AsyncStorage.getItem("pending_match_accepted").then((val) => {
-      if (val === "true") {
-        useConversationsStore.getState().setPendingMatchAccepted(true);
-      }
-    }).catch(() => {});
-
     getQueueStatus()
-      .then((res) => {
+      .then(async (res) => {
         if (res.activeSearches) {
           setActiveSearches(res.activeSearches);
         } else {
@@ -48,6 +41,17 @@ export default function HomeScreen() {
         }
         if (res.pendingProposal) {
           setMatchProposal(res.pendingProposal);
+        }
+
+        // Restore or clear pending match banner
+        const wasPending = await AsyncStorage.getItem("pending_match_accepted");
+        if (wasPending === "true") {
+          if (!res.inQueue && !res.pendingProposal) {
+            // Match was confirmed while app was closed — clear the banner
+            useConversationsStore.getState().setPendingMatchAccepted(false);
+          } else {
+            useConversationsStore.getState().setPendingMatchAccepted(true);
+          }
         }
       })
       .catch(() => {});
