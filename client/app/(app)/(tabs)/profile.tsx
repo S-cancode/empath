@@ -54,18 +54,6 @@ export default function ProfileScreen() {
     router.replace("/(auth)/splash");
   };
 
-  const handleResetOnboarding = async () => {
-    await AsyncStorage.multiRemove([
-      "onboarding_complete",
-      "name_chosen",
-      "age_confirmed",
-      "terms_accepted_version",
-      "consent_recorded",
-    ]);
-    await logout();
-    router.replace("/(auth)/onboarding");
-  };
-
   const handleWithdrawConsent = () => {
     Alert.alert(
       "Withdraw Consent",
@@ -194,11 +182,6 @@ export default function ProfileScreen() {
           <SettingsRow icon="log-out-outline" iconColor={colors.error} label="Log Out" onPress={handleLogout} destructive showChevron={false} />
         </View>
 
-        {/* Dev-only */}
-        <Text style={s.sectionHeader}>DEVELOPER</Text>
-        <View style={s.section}>
-          <SettingsRow icon="refresh-outline" iconColor={colors.textTertiary} label="Reset Onboarding" onPress={handleResetOnboarding} />
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
