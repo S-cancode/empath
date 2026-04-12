@@ -19,11 +19,11 @@ vi.mock("../lib/redis.js", () => ({
     sismember: vi.fn(async () => 0),
     publish: vi.fn(async () => 1),
     get: vi.fn(async (key: string) => redisStrings.get(key) ?? null),
+    mget: vi.fn(async (...keys: string[]) => keys.map((k) => redisStrings.get(k) ?? null)),
     set: vi.fn(async (key: string, value: string) => { redisStrings.set(key, value); }),
     del: vi.fn(async (key: string) => { redisStrings.delete(key); }),
     smembers: vi.fn(async () => []),
     sadd: vi.fn(async () => 1),
-    // Support deleted:conv lookups — return null (not deleted) by default
   },
 }));
 

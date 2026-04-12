@@ -63,7 +63,10 @@ export async function getPartnerIdsForUser(userId: string): Promise<string[]> {
   const conversations = await prisma.conversation.findMany({
     where: {
       status: "active",
-      OR: [{ userAId: userId }, { userBId: userId }],
+      OR: [
+        { userAId: userId, userB: { deletedAt: null } },
+        { userBId: userId, userA: { deletedAt: null } },
+      ],
     },
     select: { userAId: true, userBId: true },
   });

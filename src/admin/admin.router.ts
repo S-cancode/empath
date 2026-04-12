@@ -1,10 +1,20 @@
 import { Router } from "express";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 import { adminAuth } from "./admin.middleware.js";
 import { getReports, getReportDetail, takeAction, getDashboardStats } from "./admin.service.js";
 import { redis } from "../lib/redis.js";
-import type { Request, Response } from "express";
+import { ValidationError } from "../shared/errors.js";
+import type { Request, Response, NextFunction } from "express";
+
+const takeActionSchema = z.object({
+  action: z.enum(["dismiss", "warn", "suspend", "ban", "escalate"]),
+  reason: z.string().max(1000).optional(),
+  moderatorId: z.string().min(1).optional(),
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  duration: z.number().int().positive().optional(),
+});
 
 export const adminRouter = Router();
 
@@ -33,10 +43,18 @@ adminRouter.get("/reports/:id", async (req: Request, res: Response) => {
 });
 
 // Take action on report
-adminRouter.post("/reports/:id/action", async (req: Request, res: Response) => {
-  const { action, reason, duration, moderatorId, severity } = req.body;
-  const result = await takeAction(req.params.id as string, moderatorId || "admin", { action, severity, reason, duration });
-  res.json(result);
+adminRouter.post("/reports/:id/action", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = takeActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0].message);
+    }
+    const { action, reason, duration, moderatorId, severity } = parsed.data;
+    const result = await takeAction(req.params.id as string, moderatorId || "admin", { action, severity, reason, duration });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Dashboard stats

@@ -25,6 +25,7 @@ interface RateTracker {
 interface LiveSessionInvite {
   inviterId: string;
   inviterTier: string;
+  createdAt: number;
 }
 
 const rateLimits = new Map<string, RateTracker>();
@@ -36,14 +37,30 @@ const crisisAlertsSent = new Map<string, Set<string>>();
 
 // Periodic cleanup of in-memory maps to prevent unbounded growth
 const CLEANUP_INTERVAL = 10 * 60 * 1000; // 10 minutes
+const MAX_MAP_SIZE = 5000;
+const INVITE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 setInterval(() => {
   const now = Date.now();
+
   // Clean expired rate limit entries
   for (const [key, tracker] of rateLimits) {
     if (now > tracker.resetAt) rateLimits.delete(key);
   }
-  // Cap crisis alerts map size
-  if (crisisAlertsSent.size > 10000) crisisAlertsSent.clear();
+
+  // Clean stale live session invites (older than 5 min)
+  for (const [key, invite] of liveSessionInvites) {
+    if (now - invite.createdAt > INVITE_TTL_MS) liveSessionInvites.delete(key);
+  }
+
+  // Hard caps on all maps
+  if (liveSessionTimers.size > MAX_MAP_SIZE) {
+    for (const timer of liveSessionTimers.values()) clearTimeout(timer);
+    liveSessionTimers.clear();
+  }
+  if (extendRequests.size > MAX_MAP_SIZE) extendRequests.clear();
+  if (liveSessionInvites.size > MAX_MAP_SIZE) liveSessionInvites.clear();
+  if (crisisAlertsSent.size > MAX_MAP_SIZE) crisisAlertsSent.clear();
 }, CLEANUP_INTERVAL);
 
 function checkMessageRate(userId: string): boolean {
@@ -67,6 +84,7 @@ function startLiveSessionTimer(io: Server, liveSessionId: string, duration: numb
     await endLiveSession(liveSessionId);
     io.to(`livesession:${liveSessionId}`).emit("livesession:ended", { reason: "timeout", liveSessionId });
     liveSessionTimers.delete(liveSessionId);
+    extendRequests.delete(liveSessionId);
   }, duration);
 
   liveSessionTimers.set(liveSessionId, timer);
@@ -232,17 +250,21 @@ export function setupChatGateway(io: Server): void {
         return;
       }
 
-      await handleCrisisDetection(io, socket, userId, data.content, data.conversationId);
+      try {
+        await handleCrisisDetection(io, socket, userId, data.content, data.conversationId);
 
-      const message = await sendAsyncMessage(data.conversationId, userId, data.content);
+        const message = await sendAsyncMessage(data.conversationId, userId, data.content);
 
-      socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
-        conversationId: data.conversationId,
-        messageId: message.id,
-        senderId: userId,
-        content: data.content,
-        sentAt: message.sentAt.toISOString(),
-      });
+        socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
+          conversationId: data.conversationId,
+          messageId: message.id,
+          senderId: userId,
+          content: data.content,
+          sentAt: message.sentAt.toISOString(),
+        });
+      } catch (err: any) {
+        socket.emit("error", { message: err.message ?? "Failed to send message" });
+      }
     });
 
     socket.on("conversation:voice-note", async (data: { conversationId: string; audio: string; durationMs: number; waveform?: number[] }) => {
@@ -262,18 +284,22 @@ export function setupChatGateway(io: Server): void {
         return;
       }
 
-      const message = await sendVoiceNote(data.conversationId, userId, data.audio, data.durationMs, data.waveform);
+      try {
+        const message = await sendVoiceNote(data.conversationId, userId, data.audio, data.durationMs, data.waveform);
 
-      socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
-        conversationId: data.conversationId,
-        messageId: message.id,
-        senderId: userId,
-        content: data.audio,
-        sentAt: message.sentAt.toISOString(),
-        messageType: "voice",
-        voiceDurationMs: data.durationMs,
-        waveform: data.waveform,
-      });
+        socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
+          conversationId: data.conversationId,
+          messageId: message.id,
+          senderId: userId,
+          content: data.audio,
+          sentAt: message.sentAt.toISOString(),
+          messageType: "voice",
+          voiceDurationMs: data.durationMs,
+          waveform: data.waveform,
+        });
+      } catch (err: any) {
+        socket.emit("error", { message: err.message ?? "Failed to send voice note" });
+      }
     });
 
     socket.on("message:delivered", async (data: { messageIds: string[] }) => {
@@ -304,7 +330,7 @@ export function setupChatGateway(io: Server): void {
         return;
       }
 
-      liveSessionInvites.set(data.conversationId, { inviterId: userId, inviterTier: userTier });
+      liveSessionInvites.set(data.conversationId, { inviterId: userId, inviterTier: userTier, createdAt: Date.now() });
 
       emitNotification({
         type: "live_session_invite",
@@ -449,6 +475,7 @@ export function setupChatGateway(io: Server): void {
         clearTimeout(timer);
         liveSessionTimers.delete(data.liveSessionId);
       }
+      extendRequests.delete(data.liveSessionId);
 
       emitNotification({
         type: "live_session_ended",

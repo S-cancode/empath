@@ -35,7 +35,10 @@ export async function getConversationsForUser(userId: string) {
   const conversations = await prisma.conversation.findMany({
     where: {
       status: "active",
-      OR: [{ userAId: userId }, { userBId: userId }],
+      OR: [
+        { userAId: userId, userB: { deletedAt: null } },
+        { userBId: userId, userA: { deletedAt: null } },
+      ],
     },
     include: {
       userA: { select: { id: true, anonymousAlias: true } },
@@ -49,12 +52,15 @@ export async function getConversationsForUser(userId: string) {
     orderBy: { lastMessageAt: { sort: "desc", nulls: "last" } },
   });
 
-  // Filter out conversations the user has deleted (unless new messages arrived after deletion)
+  // Filter out conversations the user has soft-deleted (unless new messages arrived after deletion)
+  const deletionKeys = conversations.map((c) => `deleted:conv:${userId}:${c.id}`);
+  const deletedAts = deletionKeys.length > 0 ? await redis.mget(...deletionKeys) : [];
+
   const results = [];
-  for (const c of conversations) {
-    const deletedAt = await redis.get(`deleted:conv:${userId}:${c.id}`);
+  for (let i = 0; i < conversations.length; i++) {
+    const c = conversations[i];
+    const deletedAt = deletedAts[i];
     if (deletedAt) {
-      // Only show if there are messages after the deletion timestamp
       const hasNewMessages = c.lastMessageAt && new Date(c.lastMessageAt) > new Date(deletedAt);
       if (!hasNewMessages) continue;
     }
@@ -80,6 +86,12 @@ export async function getConversation(conversationId: string, userId: string) {
     throw new ForbiddenError("Not a participant");
   }
   return conversation;
+}
+
+function assertConversationActive(conversation: { status: string }) {
+  if (conversation.status !== "active") {
+    throw new ForbiddenError("Conversation is not active");
+  }
 }
 
 export async function getMessages(
@@ -131,6 +143,7 @@ export async function sendVoiceNote(
   waveform?: number[],
 ) {
   const conversation = await getConversation(conversationId, senderId);
+  assertConversationActive(conversation);
   const recipientId =
     conversation.userAId === senderId
       ? conversation.userBId
@@ -179,6 +192,7 @@ export async function sendAsyncMessage(
   plaintext: string,
 ) {
   const conversation = await getConversation(conversationId, senderId);
+  assertConversationActive(conversation);
   const recipientId =
     conversation.userAId === senderId
       ? conversation.userBId
@@ -301,7 +315,10 @@ export async function getArchivedConversations(userId: string) {
   const conversations = await prisma.conversation.findMany({
     where: {
       status: "archived",
-      OR: [{ userAId: userId }, { userBId: userId }],
+      OR: [
+        { userAId: userId, userB: { deletedAt: null } },
+        { userBId: userId, userA: { deletedAt: null } },
+      ],
     },
     include: {
       userA: { select: { id: true, anonymousAlias: true } },

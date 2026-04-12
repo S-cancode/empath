@@ -11,7 +11,7 @@ const RECENT_MATCH_PREFIX = "match:recent:";
 const RECENT_MATCH_TTL = 24 * 60 * 60; // 24 hours
 const DAILY_MATCH_PREFIX = "matches:";
 const ANALYSE_PENDING_PREFIX = "analyse:pending:";
-const STALE_ENTRY_MS = Infinity; // Never expire — users stay in queue until matched or cancelled
+const STALE_ENTRY_MS = 30 * 60 * 1000; // 30 minutes — auto-remove inactive queue entries
 const MIN_HYBRID_SCORE = 0.25;
 
 export async function joinQueue(request: MatchRequest): Promise<void> {
@@ -235,15 +235,18 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
     createdAt: Date.now(),
   };
 
-  // Store proposal in Redis — persists until both respond
+  // Store proposal in Redis with 5 min TTL — expired proposals mean inactive users
+  const PROPOSAL_TTL = 300;
   await redis.set(
     `match:proposal:${proposalId}`,
     JSON.stringify(proposal),
+    "EX",
+    PROPOSAL_TTL,
   );
 
   // Mark both users as having a pending proposal (prevents re-matching)
-  await redis.set(`match:pending:${anchor.userId}`, proposalId);
-  await redis.set(`match:pending:${matched.userId}`, proposalId);
+  await redis.set(`match:pending:${anchor.userId}`, proposalId, "EX", PROPOSAL_TTL);
+  await redis.set(`match:pending:${matched.userId}`, proposalId, "EX", PROPOSAL_TTL);
 
   // Notify both users about the proposal
   emitNotification({
