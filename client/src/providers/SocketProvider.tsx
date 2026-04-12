@@ -28,11 +28,13 @@ export function useSocket() {
 export function SocketProvider({ children }: PropsWithChildren) {
   const [socket, setSocket] = useState<TypedSocket | null>(null);
   const socketRef = useRef<TypedSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accessToken = useAuthStore((s) => s.accessToken);
   const { setStatus, setSocketId, setError } = useSocketStore();
 
   useEffect(() => {
     if (!accessToken) {
+      if (reconnectTimer.current) { clearTimeout(reconnectTimer.current); reconnectTimer.current = null; }
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -44,8 +46,14 @@ export function SocketProvider({ children }: PropsWithChildren) {
     }
 
     if (socketRef.current) {
-      // Update token for next reconnect
+      // Update token and force reconnect with new credentials (debounced)
       socketRef.current.auth = { token: accessToken };
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = setTimeout(() => {
+        reconnectTimer.current = null;
+        socketRef.current?.disconnect();
+        socketRef.current?.connect();
+      }, 100);
       return;
     }
 
