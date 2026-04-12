@@ -32,7 +32,10 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     return getStubEmbedding(text);
   }
 
-  const client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+  const client = new OpenAI({
+    apiKey: config.OPENAI_API_KEY,
+    baseURL: config.OPENAI_BASE_URL,
+  });
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,
     input: text,

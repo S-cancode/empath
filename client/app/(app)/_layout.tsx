@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Stack, useRouter } from "expo-router";
 import { colors } from "@/theme/colors";
 import { useGlobalMessageListener } from "@/hooks/socket/useGlobalMessageListener";
@@ -22,6 +22,7 @@ export default function AppLayout() {
   const setMatchProposal = useConversationsStore((s) => s.setMatchProposal);
   const setIsSearching = useConversationsStore((s) => s.setIsSearching);
   const [accepting, setAccepting] = useState(false);
+  const acceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     useConversationsStore.getState().loadNicknames();
@@ -46,6 +47,11 @@ export default function AppLayout() {
   useEffect(() => {
     if (!socket) return;
     const handler = (data: { conversationId: string }) => {
+      // Cancel the pending accept timer so it doesn't overwrite state
+      if (acceptTimerRef.current) {
+        clearTimeout(acceptTimerRef.current);
+        acceptTimerRef.current = null;
+      }
       setAccepting(false);
       setMatchProposal(null);
       setIsSearching(false);
@@ -63,7 +69,9 @@ export default function AppLayout() {
     socket.emit("match:accept" as any, { proposalId: matchProposal.proposalId });
 
     // Brief delay then dismiss modal and go to home with pending state
-    setTimeout(() => {
+    // Timer is stored in ref so match:confirmed handler can cancel it
+    acceptTimerRef.current = setTimeout(() => {
+      acceptTimerRef.current = null;
       setAccepting(false);
       setMatchProposal(null);
       useConversationsStore.getState().setPendingMatchAccepted(true);

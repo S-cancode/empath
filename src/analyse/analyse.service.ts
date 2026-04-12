@@ -124,7 +124,10 @@ export async function analyseText(request: AnalyseRequest): Promise<AnalyseResul
     return { ...stubResult, embedding };
   }
 
-  const client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+  const client = new OpenAI({
+    apiKey: config.OPENAI_API_KEY,
+    baseURL: config.OPENAI_BASE_URL,
+  });
 
   // Run GPT analysis and embedding generation in parallel
   const [chatResponse, embedding] = await Promise.all([

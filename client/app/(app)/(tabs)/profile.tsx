@@ -118,6 +118,7 @@ export default function ProfileScreen() {
                     try {
                       await deleteAccount();
                       await AsyncStorage.multiRemove([
+                        "name_chosen",
                         "age_confirmed",
                         "terms_accepted_version",
                         "consent_recorded",

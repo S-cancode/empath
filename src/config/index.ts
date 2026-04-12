@@ -14,6 +14,7 @@ const envSchema = z.object({
     .regex(/^[0-9a-f]+$/i, "Must be a 64-char hex string (32 bytes)"),
   FRONTEND_URL: z.string().optional(),
   OPENAI_API_KEY: z.string().optional().default("sk-stub-placeholder-key"),
+  OPENAI_BASE_URL: z.string().url().optional(),
   ADMIN_SECRET: z.string().min(6).optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z
