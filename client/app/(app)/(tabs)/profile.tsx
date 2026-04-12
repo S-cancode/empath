@@ -152,6 +152,8 @@ export default function ProfileScreen() {
           <SettingsRow icon="archive-outline" iconColor={colors.primary} label="View Archived" onPress={() => router.push("/(app)/archived")} />
           <SectionSeparator />
           <SettingsRow icon="ban-outline" iconColor="#E57373" label="Blocked Users" onPress={() => router.push("/(app)/blocked")} />
+          <SectionSeparator />
+          <SettingsRow icon="language-outline" iconColor="#7CB342" label="Translation" onPress={() => router.push("/(app)/translation-settings")} />
         </View>
 
         {/* Legal & Privacy */}

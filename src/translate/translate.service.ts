@@ -9,7 +9,26 @@ const CACHE_PREFIX = "translate:v1:";
 const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
 const INFER_LOCK_PREFIX = "translate:infer:";
 const INFER_LOCK_TTL_SECONDS = 60;
-const LANGUAGE_INFER_TTL_DAYS = 180;
+const LANGUAGE_INFER_TTL_DAYS = 30;
+const INFER_MIN_SAMPLE_CHARS = 30;
+
+// Languages whose script is unambiguous. If detectLanguageHeuristic returns
+// one of these, we trust it over the LLM — it's cheap, deterministic, and
+// impossible to game with a pasted one-off message.
+const UNAMBIGUOUS_SCRIPT_LANGS = new Set(["ja", "ko", "zh", "ar", "hi", "ru"]);
+
+function heuristicScriptFamily(lang: string): "cjk" | "kana" | "hangul" | "arabic" | "devanagari" | "cyrillic" | "latin" | "und" {
+  switch (lang) {
+    case "ja": return "kana";
+    case "ko": return "hangul";
+    case "zh": return "cjk";
+    case "ar": return "arabic";
+    case "hi": return "devanagari";
+    case "ru": return "cyrillic";
+    case "en": case "es": case "fr": case "de": case "pt": case "it": return "latin";
+    default: return "und";
+  }
+}
 
 function isStubMode(): boolean {
   return !config.OPENAI_API_KEY || config.OPENAI_API_KEY === STUB_KEY;
@@ -262,7 +281,16 @@ export async function inferUserLocaleFromText(
   userId: string,
   sampleText: string,
 ): Promise<InferredLocale | null> {
-  if (!sampleText || sampleText.trim().length < 5) return null;
+  const trimmed = sampleText?.trim() ?? "";
+  if (trimmed.length === 0) return null;
+
+  // Cheap up-front heuristic: if the message is in an unambiguous non-Latin
+  // script we trust that over the LLM regardless of sample length.
+  const heuristicLang = detectLanguageHeuristic(trimmed);
+  const heuristicIsUnambiguous = UNAMBIGUOUS_SCRIPT_LANGS.has(heuristicLang);
+
+  // Otherwise require a longer sample — short Latin-script messages mis-infer.
+  if (!heuristicIsUnambiguous && trimmed.length < INFER_MIN_SAMPLE_CHARS) return null;
 
   // Acquire debounce lock — NX ensures only one caller per minute actually runs.
   const lockKey = `${INFER_LOCK_PREFIX}${userId}`;
@@ -287,6 +315,21 @@ export async function inferUserLocaleFromText(
     });
     if (!user) return null;
 
+    // Script-mismatch self-correction: if the user has a stored preferred
+    // language but THIS message is in an unambiguous script that doesn't
+    // match it, invalidate the stored value and re-detect. Protects against
+    // a user being locked into a language they don't speak because they
+    // pasted one test message in it earlier.
+    if (
+      heuristicIsUnambiguous &&
+      user.preferredLanguage &&
+      heuristicScriptFamily(user.preferredLanguage) !== heuristicScriptFamily(heuristicLang)
+    ) {
+      user.preferredLanguage = null;
+      user.preferredDialect = null;
+      user.languageDetectedAt = null;
+    }
+
     // If we already have a recently-detected language, skip.
     const ttlMs = LANGUAGE_INFER_TTL_DAYS * 24 * 60 * 60 * 1000;
     if (
@@ -300,7 +343,13 @@ export async function inferUserLocaleFromText(
       };
     }
 
-    const detected = await callLocaleDetector(sampleText);
+    // Unambiguous-script path: trust the heuristic, skip the LLM entirely.
+    let detected: InferredLocale;
+    if (heuristicIsUnambiguous) {
+      detected = { language: heuristicLang, dialect: null };
+    } else {
+      detected = await callLocaleDetector(trimmed);
+    }
     if (!detected.language) return null;
 
     await prisma.user.update({

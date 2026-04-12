@@ -5,6 +5,7 @@ import { useGlobalMessageListener } from "@/hooks/socket/useGlobalMessageListene
 import { useConversationsStore } from "@/stores/conversations.store";
 import { useRegisterPushToken } from "@/hooks/useRegisterPushToken";
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
+import { useLocaleBootstrap } from "@/hooks/useLocaleBootstrap";
 import { useSocket } from "@/providers/SocketProvider";
 import { MatchProposalModal } from "@/components/match/MatchProposalModal";
 import { queryClient } from "@/providers/QueryProvider";
@@ -15,6 +16,7 @@ export default function AppLayout() {
   useGlobalMessageListener();
   useRegisterPushToken();
   useNotificationNavigation();
+  useLocaleBootstrap();
 
   const router = useRouter();
   const { socket } = useSocket();

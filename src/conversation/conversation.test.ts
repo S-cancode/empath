@@ -151,7 +151,7 @@ describe("conversation.service", () => {
         id: "msg-1", ...args.data, sentAt: new Date(),
       }));
 
-      await sendAsyncMessage("conv-1", "user-1", "Hola, ¿qué tal estás?");
+      await sendAsyncMessage("conv-1", "user-1", "Hola amigo, espero que estés teniendo un buen día hoy en casa.");
       // Inference is fire-and-forget; allow the microtask to flush.
       await new Promise((r) => setTimeout(r, 0));
       expect(Array.from(locked.keys()).some((k) => k.startsWith("translate:infer:user-1"))).toBe(true);

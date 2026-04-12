@@ -282,6 +282,14 @@ describe("inferUserLocaleFromText", () => {
     mockPrismaUser.update.mockReset();
   });
 
+  const LONG_ES = "Oye wey, qué onda? Todo tranquilo por acá en la casa hoy.";
+  const LONG_PT = "Tudo bem contigo? Vou dar um rolê na praia mais tarde com os amigos.";
+  const LONG_EN = "hey there, just wanted to say thanks for everything this week!";
+  const LONG_ES_RECURRING = "Hola otra vez, mi amigo. Espero que estés teniendo un buen día hoy.";
+  const LONG_FR = "Salut, comment ça va aujourd'hui? J'espère que tu passes une bonne journée.";
+  const LONG_DE = "Guten Morgen, wie geht es dir heute? Alles klar bei dir und deiner Familie?";
+  const LONG_GIBBERISH = "aaaaaaaa bbbbbbbb cccccccc dddddddd eeeeeeee ffffffff gggggggg";
+
   it("infers language + dialect and persists when user has no prefs", async () => {
     mockPrismaUser.findUnique.mockResolvedValue({
       preferredLanguage: null,
@@ -295,7 +303,7 @@ describe("inferUserLocaleFromText", () => {
       ],
     };
 
-    const result = await inferUserLocaleFromText("user-1", "Oye, ¿qué onda?");
+    const result = await inferUserLocaleFromText("user-1", LONG_ES);
     expect(result).toEqual({ language: "es", dialect: "es-MX" });
     expect(mockPrismaUser.update).toHaveBeenCalledWith({
       where: { id: "user-1" },
@@ -320,7 +328,7 @@ describe("inferUserLocaleFromText", () => {
       ],
     };
 
-    const result = await inferUserLocaleFromText("user-2", "Tudo bem?");
+    const result = await inferUserLocaleFromText("user-2", LONG_PT);
     expect(result).toEqual({ language: "pt", dialect: "pt-BR" });
   });
 
@@ -337,7 +345,7 @@ describe("inferUserLocaleFromText", () => {
       ],
     };
 
-    const result = await inferUserLocaleFromText("user-3", "hey there");
+    const result = await inferUserLocaleFromText("user-3", LONG_EN);
     expect(result).toEqual({ language: "en", dialect: null });
     expect(mockPrismaUser.update).toHaveBeenCalledWith({
       where: { id: "user-3" },
@@ -355,14 +363,14 @@ describe("inferUserLocaleFromText", () => {
       languageDetectedAt: new Date(), // fresh
     });
 
-    const result = await inferUserLocaleFromText("user-4", "Hola otra vez");
+    const result = await inferUserLocaleFromText("user-4", LONG_ES_RECURRING);
     expect(result).toEqual({ language: "es", dialect: "es-MX" });
     expect(openAiCalls).toHaveLength(0);
     expect(mockPrismaUser.update).not.toHaveBeenCalled();
   });
 
-  it("re-runs detection when the prior detection is older than TTL", async () => {
-    const oldDate = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+  it("re-runs detection when the prior detection is older than TTL (30 days)", async () => {
+    const oldDate = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
     mockPrismaUser.findUnique.mockResolvedValue({
       preferredLanguage: "es",
       preferredDialect: null,
@@ -375,7 +383,7 @@ describe("inferUserLocaleFromText", () => {
       ],
     };
 
-    const result = await inferUserLocaleFromText("user-5", "Salut, ça va?");
+    const result = await inferUserLocaleFromText("user-5", LONG_FR);
     expect(result).toEqual({ language: "fr", dialect: "fr-CA" });
     expect(openAiCalls).toHaveLength(1);
   });
@@ -394,8 +402,8 @@ describe("inferUserLocaleFromText", () => {
     };
 
     const [a, b] = await Promise.all([
-      inferUserLocaleFromText("user-6", "Guten Morgen, wie geht es dir?"),
-      inferUserLocaleFromText("user-6", "Guten Morgen, wie geht es dir?"),
+      inferUserLocaleFromText("user-6", LONG_DE),
+      inferUserLocaleFromText("user-6", LONG_DE),
     ]);
     // Exactly one of the two acquired the lock.
     const succeeded = [a, b].filter(Boolean);
@@ -403,10 +411,11 @@ describe("inferUserLocaleFromText", () => {
     expect(openAiCalls).toHaveLength(1);
   });
 
-  it("ignores very short samples", async () => {
-    const r = await inferUserLocaleFromText("user-7", "hi");
+  it("ignores short Latin-script samples below INFER_MIN_SAMPLE_CHARS", async () => {
+    const r = await inferUserLocaleFromText("user-7", "hey quick msg");
     expect(r).toBeNull();
     expect(openAiCalls).toHaveLength(0);
+    expect(mockPrismaUser.update).not.toHaveBeenCalled();
   });
 
   it("returns null when the LLM can't identify a language", async () => {
@@ -421,13 +430,12 @@ describe("inferUserLocaleFromText", () => {
       ],
     };
 
-    const r = await inferUserLocaleFromText("user-8", "¿¿¿¿ ¿¿¿¿ ¿¿¿¿");
+    const r = await inferUserLocaleFromText("user-8", LONG_GIBBERISH);
     expect(r).toBeNull();
     expect(mockPrismaUser.update).not.toHaveBeenCalled();
   });
 
-  it("stub-mode inference uses heuristic and persists what it finds", async () => {
-    setApiKey("sk-stub-placeholder-key", undefined);
+  it("trusts the script heuristic for non-Latin scripts without calling the LLM", async () => {
     mockPrismaUser.findUnique.mockResolvedValue({
       preferredLanguage: null,
       preferredDialect: null,
@@ -435,11 +443,33 @@ describe("inferUserLocaleFromText", () => {
     });
     mockPrismaUser.update.mockResolvedValue({});
 
-    const r = await inferUserLocaleFromText("user-9", "こんにちは、お元気ですか？");
+    // Short Japanese message — would normally be below min chars, but the
+    // script is unambiguous so the heuristic wins.
+    const r = await inferUserLocaleFromText("user-9", "こんにちは、元気?");
     expect(r).toEqual({ language: "ja", dialect: null });
+    expect(openAiCalls).toHaveLength(0);
     expect(mockPrismaUser.update).toHaveBeenCalledWith({
       where: { id: "user-9" },
       data: expect.objectContaining({ preferredLanguage: "ja", preferredDialect: null }),
+    });
+  });
+
+  it("auto-corrects a stored language when the current message is in a different script", async () => {
+    // User was wrongly locked into 'fr' earlier; now they type pure Japanese.
+    // The script mismatch should invalidate the old detection and re-run.
+    mockPrismaUser.findUnique.mockResolvedValue({
+      preferredLanguage: "fr",
+      preferredDialect: null,
+      languageDetectedAt: new Date(),
+    });
+    mockPrismaUser.update.mockResolvedValue({});
+
+    const r = await inferUserLocaleFromText("user-10", "こんにちは、今日は少し落ち込んでいます。");
+    expect(r).toEqual({ language: "ja", dialect: null });
+    expect(openAiCalls).toHaveLength(0);
+    expect(mockPrismaUser.update).toHaveBeenCalledWith({
+      where: { id: "user-10" },
+      data: expect.objectContaining({ preferredLanguage: "ja" }),
     });
   });
 });
