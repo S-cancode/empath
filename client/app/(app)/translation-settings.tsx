@@ -155,6 +155,7 @@ const s = StyleSheet.create({
     fontSize: 13,
     paddingHorizontal: 20,
     paddingTop: 8,
+    paddingBottom: 14,
   },
   clearButton: {
     marginTop: 24,
