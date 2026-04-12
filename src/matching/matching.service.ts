@@ -8,22 +8,25 @@ import type { MatchRequest, MatchResult } from "./matching.types.js";
 
 const GLOBAL_QUEUE_KEY = "match:queue:global";
 const RECENT_MATCH_PREFIX = "match:recent:";
-const RECENT_MATCH_TTL = 24 * 60 * 60; // 24 hours
+const RECENT_MATCH_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h cooldown window
+const RECENT_MATCH_MAX_PENALTY = 0.3; // subtracted from hybrid score at t=0
 const DAILY_MATCH_PREFIX = "matches:";
 const ANALYSE_PENDING_PREFIX = "analyse:pending:";
-const STALE_ENTRY_MS = 30 * 60 * 1000; // 30 minutes — auto-remove inactive queue entries
+const STALE_ENTRY_MS = 30 * 60 * 1000;
 const MIN_HYBRID_SCORE = 0.25;
+const QUEUE_UPDATED_CHANNEL = "queue:updated";
+
+// --- Queue membership (Postgres is source of truth) ---
 
 export async function joinQueue(request: MatchRequest): Promise<void> {
   const limits = getTierLimits(request.tier);
   const score = request.joinedAt + limits.priorityScoreOffset;
 
-  // Store in Redis without embedding (too large for Redis JSON)
   const redisPayload = { ...request };
   delete redisPayload.embedding;
-  await redis.zadd(GLOBAL_QUEUE_KEY, score, JSON.stringify(redisPayload));
+  const member = JSON.stringify(redisPayload);
 
-  // Store embedding in Postgres via raw SQL
+  // Postgres first (holds embedding). If this fails, nothing else runs.
   if (request.embedding) {
     const vectorStr = `[${request.embedding.join(",")}]`;
     const matchCtx = request.matchContext ? JSON.stringify(request.matchContext) : null;
@@ -42,24 +45,43 @@ export async function joinQueue(request: MatchRequest): Promise<void> {
       vectorStr,
     );
   }
+
+  // Redis second. If Redis fails, roll back the Postgres row to avoid orphans.
+  try {
+    await redis.zadd(GLOBAL_QUEUE_KEY, score, member);
+    await redis.publish(QUEUE_UPDATED_CHANNEL, request.userId);
+  } catch (err) {
+    if (request.embedding) {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM match_queue_entries WHERE user_id = $1`,
+        request.userId,
+      ).catch(() => {});
+    }
+    throw err;
+  }
 }
 
 export async function leaveQueue(userId: string, _category?: string): Promise<void> {
-  // Remove from Redis
-  const members = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
-  for (const member of members) {
-    const parsed = JSON.parse(member) as MatchRequest;
-    if (parsed.userId === userId) {
-      await redis.zrem(GLOBAL_QUEUE_KEY, member);
-      break;
-    }
-  }
-
-  // Remove from Postgres
+  // Postgres first (source of truth for pgvector queries).
   await prisma.$executeRawUnsafe(
     `DELETE FROM match_queue_entries WHERE user_id = $1`,
     userId,
   );
+
+  // Redis second. Orphan Redis entries are harmless (skipped by stale check) and
+  // the reconciliation sweeper will clean them up.
+  const members = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
+  for (const member of members) {
+    try {
+      const parsed = JSON.parse(member) as MatchRequest;
+      if (parsed.userId === userId) {
+        await redis.zrem(GLOBAL_QUEUE_KEY, member);
+        break;
+      }
+    } catch {
+      // Skip malformed entries; the sweeper will clean them.
+    }
+  }
 }
 
 export async function getQueueSize(): Promise<number> {
@@ -96,7 +118,7 @@ export async function incrementDailyMatchCount(userId: string): Promise<number> 
 export interface DailyMatchStatus {
   used: number;
   limit: number;
-  remaining: number; // -1 = unlimited
+  remaining: number;
   resetsInSeconds: number;
 }
 
@@ -112,21 +134,37 @@ export async function getDailyMatchStatus(userId: string, tier: string): Promise
   };
 }
 
-// --- Matching logic ---
+// --- Recent-match penalty (decayed over 24h) ---
 
-async function wereRecentlyMatched(userAId: string, userBId: string): Promise<boolean> {
-  const key = `${RECENT_MATCH_PREFIX}${userAId}`;
-  return (await redis.sismember(key, userBId)) === 1;
+function recentMatchKey(userId: string): string {
+  return `${RECENT_MATCH_PREFIX}${userId}`;
+}
+
+/**
+ * Returns a penalty in [0, RECENT_MATCH_MAX_PENALTY] to subtract from hybrid score.
+ * Full penalty at t=0, linearly decays to 0 at t=24h. 0 if no prior match.
+ */
+async function recentMatchPenalty(userAId: string, userBId: string): Promise<number> {
+  const score = await redis.zscore(recentMatchKey(userAId), userBId);
+  if (score === null || score === undefined) return 0;
+  const matchedAt = typeof score === "string" ? parseFloat(score) : score;
+  const elapsed = Date.now() - matchedAt;
+  if (elapsed >= RECENT_MATCH_WINDOW_MS) return 0;
+  const decay = 1 - elapsed / RECENT_MATCH_WINDOW_MS;
+  return RECENT_MATCH_MAX_PENALTY * decay;
 }
 
 async function markRecentlyMatched(userAId: string, userBId: string): Promise<void> {
-  const keyA = `${RECENT_MATCH_PREFIX}${userAId}`;
-  const keyB = `${RECENT_MATCH_PREFIX}${userBId}`;
-  await redis.sadd(keyA, userBId);
-  await redis.expire(keyA, RECENT_MATCH_TTL);
-  await redis.sadd(keyB, userAId);
-  await redis.expire(keyB, RECENT_MATCH_TTL);
+  const now = Date.now();
+  await redis.zadd(recentMatchKey(userAId), now, userBId);
+  await redis.zadd(recentMatchKey(userBId), now, userAId);
+  // Purge entries older than the window so sets stay bounded.
+  const cutoff = now - RECENT_MATCH_WINDOW_MS;
+  await redis.zremrangebyscore(recentMatchKey(userAId), 0, cutoff);
+  await redis.zremrangebyscore(recentMatchKey(userBId), 0, cutoff);
 }
+
+// --- Matching logic ---
 
 function buildMatchContext(
   a: MatchRequest,
@@ -137,164 +175,167 @@ function buildMatchContext(
   if (!ctxA && !ctxB) return undefined;
 
   return {
-    userA: ctxA
-      ? { summary: ctxA.summary, keywords: ctxA.keywords }
-      : undefined,
-    userB: ctxB
-      ? { summary: ctxB.summary, keywords: ctxB.keywords }
-      : undefined,
+    userA: ctxA ? { summary: ctxA.summary, keywords: ctxA.keywords } : undefined,
+    userB: ctxB ? { summary: ctxB.summary, keywords: ctxB.keywords } : undefined,
   };
 }
 
-export async function tryMatchGlobal(): Promise<MatchResult | null> {
+/**
+ * Attempt to form as many disjoint matches as possible from the current queue.
+ * Returns the list of created proposals. Used by the event-driven worker.
+ */
+export async function tryMatchAllPairs(): Promise<MatchResult[]> {
   const members = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
-  if (members.length < 2) return null;
+  if (members.length < 2) return [];
 
   const candidates = members.map((m) => JSON.parse(m) as MatchRequest);
+  const consumed = new Set<string>();
+  const results: MatchResult[] = [];
 
-  // Try each candidate as anchor until one matches
   for (let anchorIdx = 0; anchorIdx < candidates.length; anchorIdx++) {
-  const anchor = candidates[anchorIdx];
-  console.log(`[match] Trying match for anchor=${anchor.userId}, ${candidates.length} candidates in queue`);
+    const anchor = candidates[anchorIdx];
+    if (consumed.has(anchor.userId)) continue;
 
-  // Skip if anchor already has a pending proposal
-  const anchorPending = await redis.get(`match:pending:${anchor.userId}`);
-  if (anchorPending) { console.log(`[match] Anchor has pending proposal, skipping`); continue; }
+    const anchorPending = await redis.get(`match:pending:${anchor.userId}`);
+    if (anchorPending) continue;
 
-  // Query pgvector for cosine similarities against anchor
-  const similarities = await prisma.$queryRawUnsafe<
-    Array<{ user_id: string; similarity: number }>
-  >(
-    `SELECT
-       b.user_id,
-       1 - (a.embedding <=> b.embedding) AS similarity
-     FROM match_queue_entries a, match_queue_entries b
-     WHERE a.user_id = $1
-       AND b.user_id != $1
-     ORDER BY a.embedding <=> b.embedding
-     LIMIT 20`,
-    anchor.userId,
-  );
+    const similarities = await prisma.$queryRawUnsafe<
+      Array<{ user_id: string; similarity: number }>
+    >(
+      `SELECT
+         b.user_id,
+         1 - (a.embedding <=> b.embedding) AS similarity
+       FROM match_queue_entries a, match_queue_entries b
+       WHERE a.user_id = $1
+         AND b.user_id != $1
+       ORDER BY a.embedding <=> b.embedding
+       LIMIT 20`,
+      anchor.userId,
+    );
 
-  console.log(`[match] pgvector returned ${similarities.length} similarities`);
+    let bestMatch:
+      | { userId: string; score: number; memberIndex: number; similarity: number }
+      | null = null;
 
-  let bestMatch: { userId: string; score: number; memberIndex: number; similarity: number } | null = null;
+    for (const sim of similarities) {
+      if (sim.user_id === anchor.userId) continue;
+      if (consumed.has(sim.user_id)) continue;
 
-  for (const sim of similarities) {
-    const candidateIndex = candidates.findIndex((c) => c.userId === sim.user_id);
-    if (candidateIndex === -1) { console.log(`[match] Candidate ${sim.user_id} not in Redis queue (stale)`); continue; }
+      const candidateIndex = candidates.findIndex((c) => c.userId === sim.user_id);
+      if (candidateIndex === -1) continue;
 
-    const candidate = candidates[candidateIndex];
+      const candidate = candidates[candidateIndex];
 
-    if (await isBlocked(anchor.userId, candidate.userId)) { console.log(`[match] Blocked: ${anchor.userId} <-> ${candidate.userId}`); continue; }
-    if (await wereRecentlyMatched(anchor.userId, candidate.userId)) { console.log(`[match] Recently matched: ${anchor.userId} <-> ${candidate.userId}`); continue; }
+      if (await isBlocked(anchor.userId, candidate.userId)) continue;
 
-    // Hybrid score: 90% cosine similarity + 10% wait time bonus
-    const cosinePart = sim.similarity * 0.9;
-    const waitMs = Date.now() - candidate.joinedAt;
-    const waitBonus = Math.min(waitMs / (10 * 60 * 1000), 1) * 0.1; // caps at 10 min
+      const cosinePart = sim.similarity * 0.9;
+      const waitMs = Date.now() - candidate.joinedAt;
+      const waitBonus = Math.min(waitMs / (10 * 60 * 1000), 1) * 0.1;
+      const penalty = await recentMatchPenalty(anchor.userId, candidate.userId);
+      const hybridScore = cosinePart + waitBonus - penalty;
 
-    const hybridScore = cosinePart + waitBonus;
-
-    if (!bestMatch || hybridScore > bestMatch.score) {
-      bestMatch = { userId: candidate.userId, score: hybridScore, memberIndex: candidateIndex, similarity: sim.similarity };
+      if (!bestMatch || hybridScore > bestMatch.score) {
+        bestMatch = {
+          userId: candidate.userId,
+          score: hybridScore,
+          memberIndex: candidateIndex,
+          similarity: sim.similarity,
+        };
+      }
     }
+
+    if (!bestMatch) continue;
+    if (bestMatch.score < MIN_HYBRID_SCORE) continue;
+
+    const matched = candidates[bestMatch.memberIndex];
+
+    // Remove both from queue stores. Postgres first (source of truth).
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
+      anchor.userId,
+      matched.userId,
+    );
+    await redis.zrem(GLOBAL_QUEUE_KEY, members[anchorIdx], members[bestMatch.memberIndex]);
+
+    consumed.add(anchor.userId);
+    consumed.add(matched.userId);
+
+    const ctxA = anchor.matchContext as Record<string, unknown> | undefined;
+    const ctxB = matched.matchContext as Record<string, unknown> | undefined;
+    const displayCategory = (ctxA?.primaryCategory || ctxB?.primaryCategory || "identity") as string;
+
+    const proposalId = `proposal:${Date.now()}:${anchor.userId.slice(0, 8)}`;
+    const proposal = {
+      proposalId,
+      userAId: anchor.userId,
+      userBId: matched.userId,
+      userAJoinedAt: anchor.joinedAt,
+      userBJoinedAt: matched.joinedAt,
+      userATier: anchor.tier,
+      userBTier: matched.tier,
+      category: displayCategory,
+      subTag: anchor.subTag || matched.subTag || null,
+      similarity: bestMatch.similarity,
+      userASummary: (ctxA?.summary as string) || "Someone going through a similar experience.",
+      userBSummary: (ctxB?.summary as string) || "Someone going through a similar experience.",
+      userACategory: (ctxA?.primaryCategory as string) || displayCategory,
+      userBCategory: (ctxB?.primaryCategory as string) || displayCategory,
+      matchContextA: ctxA ? { summary: ctxA.summary, keywords: ctxA.keywords } : undefined,
+      matchContextB: ctxB ? { summary: ctxB.summary, keywords: ctxB.keywords } : undefined,
+      userAAccepted: false,
+      userBAccepted: false,
+      createdAt: Date.now(),
+    };
+
+    const PROPOSAL_TTL = 300;
+    await redis.set(`match:proposal:${proposalId}`, JSON.stringify(proposal), "EX", PROPOSAL_TTL);
+    await redis.set(`match:pending:${anchor.userId}`, proposalId, "EX", PROPOSAL_TTL);
+    await redis.set(`match:pending:${matched.userId}`, proposalId, "EX", PROPOSAL_TTL);
+
+    emitNotification({
+      type: "match_proposed",
+      recipientId: anchor.userId,
+      payload: {
+        proposalId,
+        partnerSummary: proposal.userBSummary,
+        partnerCategory: proposal.userBCategory,
+      },
+      createdAt: new Date(),
+    });
+    emitNotification({
+      type: "match_proposed",
+      recipientId: matched.userId,
+      payload: {
+        proposalId,
+        partnerSummary: proposal.userASummary,
+        partnerCategory: proposal.userACategory,
+      },
+      createdAt: new Date(),
+    });
+
+    results.push({
+      conversationId: proposalId,
+      userAId: anchor.userId,
+      userBId: matched.userId,
+      category: displayCategory,
+      subTag: proposal.subTag ?? undefined,
+    });
   }
 
-  if (!bestMatch) { console.log(`[match] No valid candidate found for anchor ${anchor.userId}`); continue; }
-  if (bestMatch.score < MIN_HYBRID_SCORE) { console.log(`[match] Best score ${bestMatch.score} below threshold ${MIN_HYBRID_SCORE}`); continue; }
+  return results;
+}
 
-  const matched = candidates[bestMatch.memberIndex];
-
-  // Remove both from Redis queue AND from the Postgres vector queue so stale rows
-  // don't pollute future pgvector similarity queries while the proposal is pending.
-  await redis.zrem(GLOBAL_QUEUE_KEY, members[anchorIdx], members[bestMatch.memberIndex]);
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
-    anchor.userId,
-    matched.userId,
-  );
-
-  // Build proposal instead of creating conversation directly
-  // Note: do NOT remove from queue, increment daily counts, or mark as recent
-  // until both users accept the proposal. This happens in acceptProposal().
-  const ctxA = anchor.matchContext as Record<string, unknown> | undefined;
-  const ctxB = matched.matchContext as Record<string, unknown> | undefined;
-  const displayCategory = (ctxA?.primaryCategory || ctxB?.primaryCategory || "identity") as string;
-
-  const proposalId = `proposal:${Date.now()}:${anchor.userId.slice(0, 8)}`;
-  const proposal = {
-    proposalId,
-    userAId: anchor.userId,
-    userBId: matched.userId,
-    userAJoinedAt: anchor.joinedAt,
-    userBJoinedAt: matched.joinedAt,
-    userATier: anchor.tier,
-    userBTier: matched.tier,
-    category: displayCategory,
-    subTag: anchor.subTag || matched.subTag || null,
-    similarity: bestMatch.similarity,
-    userASummary: (ctxA?.summary as string) || "Someone going through a similar experience.",
-    userBSummary: (ctxB?.summary as string) || "Someone going through a similar experience.",
-    userACategory: (ctxA?.primaryCategory as string) || displayCategory,
-    userBCategory: (ctxB?.primaryCategory as string) || displayCategory,
-    matchContextA: ctxA ? { summary: ctxA.summary, keywords: ctxA.keywords } : undefined,
-    matchContextB: ctxB ? { summary: ctxB.summary, keywords: ctxB.keywords } : undefined,
-    userAAccepted: false,
-    userBAccepted: false,
-    createdAt: Date.now(),
-  };
-
-  // Store proposal in Redis with 5 min TTL — expired proposals mean inactive users
-  const PROPOSAL_TTL = 300;
-  await redis.set(
-    `match:proposal:${proposalId}`,
-    JSON.stringify(proposal),
-    "EX",
-    PROPOSAL_TTL,
-  );
-
-  // Mark both users as having a pending proposal (prevents re-matching)
-  await redis.set(`match:pending:${anchor.userId}`, proposalId, "EX", PROPOSAL_TTL);
-  await redis.set(`match:pending:${matched.userId}`, proposalId, "EX", PROPOSAL_TTL);
-
-  // Notify both users about the proposal
-  emitNotification({
-    type: "match_proposed",
-    recipientId: anchor.userId,
-    payload: {
-      proposalId,
-      partnerSummary: proposal.userBSummary,
-      partnerCategory: proposal.userBCategory,
-    },
-    createdAt: new Date(),
-  });
-  emitNotification({
-    type: "match_proposed",
-    recipientId: matched.userId,
-    payload: {
-      proposalId,
-      partnerSummary: proposal.userASummary,
-      partnerCategory: proposal.userACategory,
-    },
-    createdAt: new Date(),
-  });
-
-  return {
-    conversationId: proposalId, // temporary — actual conversation created on accept
-    userAId: anchor.userId,
-    userBId: matched.userId,
-    category: displayCategory,
-    subTag: proposal.subTag ?? undefined,
-  };
-  } // end anchor loop
-
-  return null;
+/**
+ * Backward-compatible single-match wrapper. Returns the first created proposal
+ * or null if no pair could be formed.
+ */
+export async function tryMatchGlobal(): Promise<MatchResult | null> {
+  const results = await tryMatchAllPairs();
+  return results[0] ?? null;
 }
 
 // --- Match proposal accept/decline ---
 
-// Lua script for atomic accept — returns: "matched" | "waiting" | "expired" | "invalid"
 const ACCEPT_LUA = `
 local key = KEYS[1]
 local userId = ARGV[1]
@@ -330,7 +371,6 @@ export async function acceptProposal(
   if (result === "expired" || result === "invalid") return { status: "waiting" };
   if (result === "waiting") return { status: "waiting" };
 
-  // result starts with "matched:" — parse the original proposal
   const raw = result.slice(8);
   const proposal = JSON.parse(raw);
 
@@ -349,34 +389,31 @@ export async function acceptProposal(
     },
   });
 
-  // Log anonymised match quality
   await prisma.matchQualityLog.create({
     data: {
       similarityScore: proposal.similarity,
       categoryA: proposal.userACategory,
       categoryB: proposal.userBCategory,
+      conversationId: conversation.id,
+      userAId: proposal.userAId,
+      userBId: proposal.userBId,
     },
   });
 
-  // Increment daily counters
   await incrementDailyMatchCount(proposal.userAId);
   await incrementDailyMatchCount(proposal.userBId);
 
-  // Record recent match
   await markRecentlyMatched(proposal.userAId, proposal.userBId);
 
-  // Clean up encrypted raw text
   await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userAId}`);
   await redis.del(`${ANALYSE_PENDING_PREFIX}${proposal.userBId}`);
 
-  // Remove from match queue
   await prisma.$executeRawUnsafe(
     `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
     proposal.userAId,
     proposal.userBId,
   );
 
-  // Notify both
   emitNotification({
     type: "match_confirmed",
     recipientId: proposal.userAId,
@@ -398,7 +435,7 @@ export async function declineProposal(
   userId: string,
 ): Promise<void> {
   const raw = await redis.get(`match:proposal:${proposalId}`);
-  if (!raw) return; // expired
+  if (!raw) return;
 
   const proposal = JSON.parse(raw);
   await redis.del(`match:proposal:${proposalId}`);
@@ -409,13 +446,8 @@ export async function declineProposal(
   const decliningUserId = decliningIsA ? proposal.userAId : proposal.userBId;
   const otherUserId = decliningIsA ? proposal.userBId : proposal.userAId;
 
-  // Remove declining user from queue entirely
   await leaveQueue(decliningUserId);
 
-  // Re-queue the other user so they aren't left in limbo.
-  // tryMatchGlobal() removed both from the Redis sorted set when creating the proposal,
-  // so the other user needs to be re-added to be matchable again.
-  // Preserve their original joinedAt + tier so they don't lose queue position fairness.
   const otherCtx = decliningIsA ? proposal.matchContextB : proposal.matchContextA;
   const otherCategory = decliningIsA ? proposal.userBCategory : proposal.userACategory;
   const otherTier = (decliningIsA ? proposal.userBTier : proposal.userATier) as string | undefined;
@@ -437,7 +469,6 @@ export async function declineProposal(
     matchContext: otherCtx,
   });
 
-  // Notify the other user that the match was declined
   emitNotification({
     type: "match_declined",
     recipientId: otherUserId,
@@ -446,28 +477,80 @@ export async function declineProposal(
   });
 }
 
-// --- Stale entry cleanup ---
+// --- Stale entry cleanup + bidirectional reconciliation ---
 
 export async function cleanupStaleEntries(): Promise<number> {
-  if (!isFinite(STALE_ENTRY_MS)) return 0; // Never expire
-  const cutoff = new Date(Date.now() - STALE_ENTRY_MS);
-
-  // Clean Postgres
-  const result = await prisma.$executeRawUnsafe(
-    `DELETE FROM match_queue_entries WHERE created_at < $1`,
-    cutoff,
-  );
-
-  // Clean Redis
-  const members = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
   let removed = 0;
-  for (const member of members) {
-    const parsed = JSON.parse(member) as MatchRequest;
-    if (parsed.joinedAt < cutoff.getTime()) {
-      await redis.zrem(GLOBAL_QUEUE_KEY, member);
-      removed++;
+
+  // 1) Postgres: delete entries older than the stale window.
+  if (isFinite(STALE_ENTRY_MS)) {
+    const cutoff = new Date(Date.now() - STALE_ENTRY_MS);
+    const result = await prisma.$executeRawUnsafe(
+      `DELETE FROM match_queue_entries WHERE created_at < $1`,
+      cutoff,
+    );
+    if (typeof result === "number") removed += result;
+  }
+
+  // 2) Redis: drop entries older than the stale window.
+  const members = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
+  if (isFinite(STALE_ENTRY_MS)) {
+    const cutoffMs = Date.now() - STALE_ENTRY_MS;
+    for (const member of members) {
+      try {
+        const parsed = JSON.parse(member) as MatchRequest;
+        if (parsed.joinedAt < cutoffMs) {
+          await redis.zrem(GLOBAL_QUEUE_KEY, member);
+          removed++;
+        }
+      } catch {
+        // Malformed — drop it.
+        await redis.zrem(GLOBAL_QUEUE_KEY, member);
+        removed++;
+      }
     }
   }
 
-  return removed + (typeof result === "number" ? result : 0);
+  // 3) Bidirectional reconciliation: drop entries present in one store but not
+  //    the other. Prevents silent "stale candidate" skips in the match loop.
+  const redisMembers = await redis.zrange(GLOBAL_QUEUE_KEY, 0, -1);
+  const redisUserIds = new Set<string>();
+  const redisMemberByUser = new Map<string, string>();
+  for (const member of redisMembers) {
+    try {
+      const parsed = JSON.parse(member) as MatchRequest;
+      redisUserIds.add(parsed.userId);
+      redisMemberByUser.set(parsed.userId, member);
+    } catch {
+      // Already handled above.
+    }
+  }
+
+  const pgRows = await prisma.$queryRawUnsafe<Array<{ user_id: string }>>(
+    `SELECT user_id FROM match_queue_entries`,
+  );
+  const pgUserIds = new Set(pgRows.map((r) => r.user_id));
+
+  // Redis-only orphans: drop from Redis.
+  for (const userId of redisUserIds) {
+    if (!pgUserIds.has(userId)) {
+      const member = redisMemberByUser.get(userId);
+      if (member) {
+        await redis.zrem(GLOBAL_QUEUE_KEY, member);
+        removed++;
+      }
+    }
+  }
+
+  // Postgres-only orphans: drop from Postgres.
+  const pgOnly = [...pgUserIds].filter((id) => !redisUserIds.has(id));
+  if (pgOnly.length > 0) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM match_queue_entries WHERE user_id = ANY($1::text[])`,
+      pgOnly,
+    );
+    removed += pgOnly.length;
+  }
+
+  return removed;
 }

@@ -5,11 +5,8 @@ import { authMiddleware, requireTier, requireCompliance } from "../auth/auth.mid
 import { apiLimiter } from "../shared/rate-limiter.js";
 import { ValidationError, UpgradeRequiredError, ForbiddenError } from "../shared/errors.js";
 import { hasValidConsent } from "../compliance/compliance.service.js";
-import { categories } from "../categories/categories.data.js";
 import { getTierLimits } from "../config/tiers.js";
 import { SubscriptionTier } from "../shared/types.js";
-import { generateEmbedding } from "../analyse/embedding.service.js";
-import { stripPII } from "../analyse/pii-stripper.js";
 import { redis } from "../lib/redis.js";
 
 const router = Router();
@@ -18,6 +15,8 @@ const router = Router();
 router.use(authMiddleware, requireCompliance);
 
 const joinSchema = z.object({
+  // `category` accepted for backward wire compatibility with older builds but
+  // ignored — every join is routed through the AI-prompt flow.
   category: z.string().optional(),
   subTag: z.string().optional(),
   keywords: z.array(z.string()).max(12).optional(),
@@ -61,57 +60,52 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
       throw new ForbiddenError("Sensitive data consent required to use matching. Please enable it in Settings.");
     }
 
-    const category = parsed.data.category || "ai-prompt";
-
-    // Validate category if it's not ai-prompt
-    if (category !== "ai-prompt" && !categories.some((c) => c.id === category)) {
-      throw new ValidationError("Invalid category");
+    // All matching goes through the AI-prompt flow. The client must call
+    // POST /match/analyse first, which caches the analysis+embedding in
+    // analyse:pending:{userId}. Joining without that is rejected.
+    const pendingKey = `analyse:pending:${req.user!.userId}`;
+    const pendingData = await redis.get(pendingKey);
+    if (!pendingData) {
+      throw new ValidationError(
+        "Please describe what's on your mind first so we can find a good match.",
+      );
     }
 
-    // Check premiumOnly sub-tag
-    if (parsed.data.subTag && category !== "ai-prompt") {
-      const cat = categories.find((c) => c.id === category);
-      const tag = cat?.subTags.find((t) => t.id === parsed.data.subTag);
-      if (tag?.premiumOnly && !limits.canUseSubTags) {
+    let embedding: number[] | undefined;
+    let analysis: Record<string, unknown> | undefined;
+    try {
+      const pending = JSON.parse(pendingData);
+      embedding = pending.analysis?.embedding;
+      analysis = pending.analysis;
+    } catch {
+      throw new ValidationError("Your analysis expired. Please try again.");
+    }
+    if (!embedding) {
+      throw new ValidationError("Your analysis expired. Please try again.");
+    }
+
+    // Keep subTag tier-gate, using the analysis-derived primary category.
+    if (parsed.data.subTag && analysis?.primaryCategory) {
+      // categories module already validated at the analyse step; we only
+      // enforce the premium gate here.
+      if (!limits.canUseSubTags) {
         throw new UpgradeRequiredError(SubscriptionTier.PREMIUM, "Premium sub-tags require an upgrade");
       }
     }
 
-    // Retrieve embedding from analyse:pending (ai-prompt flow)
-    let embedding: number[] | undefined;
-    const pendingKey = `analyse:pending:${req.user!.userId}`;
-    const pendingData = await redis.get(pendingKey);
-
-    if (pendingData) {
-      try {
-        const pending = JSON.parse(pendingData);
-        embedding = pending.analysis?.embedding;
-      } catch {
-        // Non-critical — proceed without cached embedding
-      }
-    }
-
-    // If no embedding from analyse flow (category-based join), generate one from category text
-    if (!embedding) {
-      const categoryName = categories.find((c) => c.id === category)?.name ?? category;
-      const subTagName = parsed.data.subTag ?? "";
-      const fallbackText = stripPII(`I need support with ${categoryName}${subTagName ? `: ${subTagName}` : ""}`);
-      embedding = await generateEmbedding(fallbackText);
-    }
-
     await joinQueue({
       userId: req.user!.userId,
-      category,
+      category: "ai-prompt",
       subTag: parsed.data.subTag,
       tier: req.user!.tier,
       joinedAt: Date.now(),
       keywords: parsed.data.keywords,
-      matchContext: parsed.data.matchContext,
+      matchContext: parsed.data.matchContext ?? analysis,
       embedding,
     });
 
     const matchStatus = await getDailyMatchStatus(req.user!.userId, tier);
-    res.json({ status: "queued", category, matchStatus });
+    res.json({ status: "queued", category: "ai-prompt", matchStatus });
   } catch (err) {
     next(err);
   }

@@ -120,7 +120,10 @@ export async function analyseText(request: AnalyseRequest): Promise<AnalyseResul
 
   if (!config.OPENAI_API_KEY || config.OPENAI_API_KEY === STUB_KEY) {
     const stubResult = getStubResult(strippedText);
-    const embedding = await generateEmbedding(strippedText);
+    // Enrich the stub embedding input with the stub summary + keywords so
+    // stub-mode similarity mirrors the real-mode shape.
+    const embedInput = `${strippedText}\n${stubResult.summary}\n${stubResult.keywords.join(" ")}`;
+    const embedding = await generateEmbedding(embedInput);
     return { ...stubResult, embedding };
   }
 
@@ -129,25 +132,28 @@ export async function analyseText(request: AnalyseRequest): Promise<AnalyseResul
     baseURL: config.OPENAI_BASE_URL,
   });
 
-  // Run GPT analysis and embedding generation in parallel
-  const [chatResponse, embedding] = await Promise.all([
-    client.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 512,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: strippedText },
-      ],
-    }),
-    generateEmbedding(strippedText),
-  ]);
+  // Step 1: GPT analysis (keywords + summary). These enrich the embedding input
+  // so cosine similarity reflects emotional context, not surface lexical overlap.
+  const chatResponse = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    max_tokens: 512,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: strippedText },
+    ],
+  });
 
-  const text = chatResponse.choices[0]?.message?.content;
-  if (!text) {
+  const textOut = chatResponse.choices[0]?.message?.content;
+  if (!textOut) {
     throw new Error("Unexpected AI response: no content returned");
   }
 
-  const parsed = JSON.parse(text) as AnalyseResult;
+  const parsed = JSON.parse(textOut) as AnalyseResult;
   const validated = validateResult(parsed);
+
+  // Step 2: embed (stripped text + summary + keywords).
+  const embedInput = `${strippedText}\n${validated.summary}\n${(validated.keywords ?? []).join(" ")}`;
+  const embedding = await generateEmbedding(embedInput);
+
   return { ...validated, embedding };
 }

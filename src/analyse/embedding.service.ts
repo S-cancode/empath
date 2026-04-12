@@ -3,13 +3,17 @@ import { createHash } from "node:crypto";
 import { config } from "../config/index.js";
 
 const STUB_KEY = "sk-stub-placeholder-key";
-const EMBEDDING_MODEL = "text-embedding-3-small";
+// text-embedding-3-large is meaningfully stronger than -small on mental-health
+// semantics; we request it at 1536 dims so it still indexes under pgvector
+// (HNSW/IVFFlat both cap at 2000). Represents a real quality upgrade with no
+// schema change vs. the -small default.
+const EMBEDDING_MODEL = "text-embedding-3-large";
 const EMBEDDING_DIMS = 1536;
 
 /**
  * Generate a deterministic pseudo-random embedding from text hash.
  * Used in dev/test when no OpenAI API key is configured.
- * Produces a normalized 1536-dim vector seeded from SHA-256 hash.
+ * Produces a normalized EMBEDDING_DIMS-long vector seeded from SHA-256 hash.
  */
 function getStubEmbedding(text: string): number[] {
   const hash = createHash("sha256").update(text).digest();
@@ -39,6 +43,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,
     input: text,
+    dimensions: EMBEDDING_DIMS,
   });
 
   return response.data[0].embedding;

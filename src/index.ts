@@ -21,6 +21,7 @@ import { startAutoArchiveWorker, stopAutoArchiveWorker, startRetentionWorker, st
 import { setupChatGateway } from "./chat/chat.gateway.js";
 import { startMessageBuffer, stopMessageBuffer, flushMessages } from "./chat/chat.service.js";
 import { startMatchingWorker, stopMatchingWorker } from "./matching/matching.worker.js";
+import { startOutcomeWorker, stopOutcomeWorker } from "./matching/outcome.worker.js";
 import { prisma } from "./lib/prisma.js";
 import { redis } from "./lib/redis.js";
 import { apiLimiter } from "./shared/rate-limiter.js";
@@ -95,6 +96,7 @@ setIoInstance(io);
 // Start services
 startMessageBuffer();
 startMatchingWorker();
+startOutcomeWorker();
 startAutoArchiveWorker();
 startRetentionWorker();
 startPushListener();
@@ -115,6 +117,7 @@ httpServer.listen(config.PORT, async () => {
 async function shutdown(): Promise<void> {
   console.log("Shutting down...");
   stopMatchingWorker();
+  stopOutcomeWorker();
   stopMessageBuffer();
   stopAutoArchiveWorker();
   stopRetentionWorker();

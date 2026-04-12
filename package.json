@@ -6,8 +6,8 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "build": "prisma generate && tsc",
+    "start": "prisma migrate deploy && node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "translate:smoke": "tsx scripts/translate-smoke.ts",

@@ -34,6 +34,22 @@ vi.mock("../lib/redis.js", () => ({
       return entries.slice(start, end).map(([m]) => m);
     }),
     zcard: vi.fn(async (key: string) => store.get(key)?.size ?? 0),
+    zscore: vi.fn(async (key: string, member: string) => {
+      return store.get(key)?.get(member) ?? null;
+    }),
+    zremrangebyscore: vi.fn(async (key: string, min: number, max: number) => {
+      const sorted = store.get(key);
+      if (!sorted) return 0;
+      let removed = 0;
+      for (const [m, s] of [...sorted.entries()]) {
+        if (s >= min && s <= max) {
+          sorted.delete(m);
+          removed++;
+        }
+      }
+      return removed;
+    }),
+    eval: vi.fn(),
     keys: vi.fn(async (pattern: string) => {
       const prefix = pattern.replace("*", "");
       return [...store.keys()].filter((k) => k.startsWith(prefix));
@@ -99,6 +115,7 @@ import {
   leaveQueue,
   getQueueSize,
   tryMatchGlobal,
+  tryMatchAllPairs,
   getDailyMatchCount,
   getDailyMatchStatus,
 } from "./matching.service.js";
@@ -198,5 +215,25 @@ describe("matching.service", () => {
     const status = await getDailyMatchStatus("user-1", "plus");
     expect(status.limit).toBe(0);
     expect(status.remaining).toBe(-1);
+  });
+
+  it("tryMatchAllPairs forms multiple disjoint pairs in one pass", async () => {
+    await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
+    await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
+    await joinQueue({ userId: "user-3", category: "grief", tier: "free", joinedAt: 3000 });
+    await joinQueue({ userId: "user-4", category: "grief", tier: "free", joinedAt: 4000 });
+
+    // Return every other user as a high-similarity candidate — the matcher should
+    // form two disjoint pairs (1-2 and 3-4) in a single pass.
+    mockSimilarities.push(
+      { user_id: "user-2", similarity: 0.9 },
+      { user_id: "user-3", similarity: 0.85 },
+      { user_id: "user-4", similarity: 0.8 },
+    );
+
+    const results = await tryMatchAllPairs();
+    expect(results.length).toBe(2);
+    const allUsers = new Set(results.flatMap((r) => [r.userAId, r.userBId]));
+    expect(allUsers.size).toBe(4);
   });
 });

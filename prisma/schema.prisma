@@ -21,14 +21,25 @@ model MatchQueueEntry {
   @@map("match_queue_entries")
 }
 
-/// Anonymised match quality log — no user identifiers
+/// Match quality + outcome log — fed back into matcher tuning.
+/// userAId/userBId are retained so post-match outcomes (first reply, 24h activity,
+/// 7d survival) can be computed from the Conversation/Message tables.
 model MatchQualityLog {
-  id              String   @id @default(uuid())
-  similarityScore Float    @map("similarity_score")
-  categoryA       String   @map("category_a")
-  categoryB       String   @map("category_b")
-  matchedAt       DateTime @default(now()) @map("matched_at")
+  id                     String    @id @default(uuid())
+  similarityScore        Float     @map("similarity_score")
+  categoryA              String    @map("category_a")
+  categoryB              String    @map("category_b")
+  matchedAt              DateTime  @default(now()) @map("matched_at")
+  conversationId         String?   @map("conversation_id")
+  userAId                String?   @map("user_a_id")
+  userBId                String?   @map("user_b_id")
+  firstReplyWithin10Min  Boolean?  @map("first_reply_within_10min")
+  msgsIn24h              Int?      @map("msgs_in_24h")
+  aliveAtDay7            Boolean?  @map("alive_at_day_7")
+  outcomeComputedAt      DateTime? @map("outcome_computed_at")
 
+  @@index([conversationId])
+  @@index([matchedAt])
   @@map("match_quality_logs")
 }
 

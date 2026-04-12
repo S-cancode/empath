@@ -93,10 +93,6 @@ export default function AppLayout() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
-          name="queue/[category]"
-          options={{ headerShown: false, presentation: "modal" }}
-        />
-        <Stack.Screen
           name="chat/[conversationId]"
           options={{ headerShown: false }}
         />
