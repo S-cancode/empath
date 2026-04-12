@@ -71,7 +71,9 @@ export default function TranslationSettingsScreen() {
             />
           </View>
           <Text style={s.footnote}>
-            When on, messages from people you talk with are translated into your preferred language.
+            When on, incoming messages from people you talk with are translated into your
+            preferred language. Your outgoing messages are delivered in the language you
+            wrote them in and then translated into whatever language the recipient reads in.
           </Text>
         </View>
 

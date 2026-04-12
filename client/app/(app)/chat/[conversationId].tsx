@@ -23,6 +23,7 @@ import { useBlockUser } from "@/hooks/mutations/useBlockUser";
 import { useConversations } from "@/hooks/queries/useConversations";
 import { useConversationSocket } from "@/hooks/socket/useConversationSocket";
 import { MessageBubble } from "@/components/chat/MessageBubble";
+import { languageLabel } from "@/components/chat/translationDisplay";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { CrisisAlert } from "@/components/chat/CrisisAlert";
@@ -283,6 +284,24 @@ export default function ChatScreen() {
         <View style={styles.container}>
           <AppBackground />
 
+          {(() => {
+            const first = messages.find(
+              (m) => (m as Message).translated === true && (m as Message).sourceLanguage,
+            ) as Message | undefined;
+            if (!first) return null;
+            return (
+              <TouchableOpacity
+                style={styles.translateBanner}
+                activeOpacity={0.7}
+                onPress={() => router.push("/(app)/translation-settings" as any)}
+              >
+                <Text style={styles.translateBannerText}>
+                  Auto-translating from {languageLabel(first.sourceLanguage)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })()}
+
           <FlatList
             data={messages}
             keyExtractor={(item) => item.id}
@@ -307,6 +326,9 @@ export default function ChatScreen() {
                     messageType={item.messageType as "text" | "voice" | undefined}
                     voiceDurationMs={item.voiceDurationMs}
                     waveform={item.waveform as number[] | undefined}
+                    originalContent={(item as Message).originalContent}
+                    translated={(item as Message).translated}
+                    sourceLanguage={(item as Message).sourceLanguage}
                     onLongPress={
                       item.senderId !== userId
                         ? () => {
@@ -460,5 +482,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 18,
+  },
+  translateBanner: {
+    backgroundColor: colors.primary + "18",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  translateBannerText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: colors.primaryDark,
   },
 });

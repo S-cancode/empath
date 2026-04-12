@@ -78,6 +78,12 @@ export interface Message {
   messageType?: "text" | "voice";
   voiceDurationMs?: number;
   waveform?: number[];
+  // Translation metadata (populated by the server when autotranslate runs).
+  // `originalContent` is the untranslated source text; `content` is what the
+  // reader sees. `translated` is true only when content differs from source.
+  originalContent?: string;
+  translated?: boolean;
+  sourceLanguage?: string | null;
 }
 
 export interface ReconnectResponse {

@@ -44,6 +44,9 @@ export function useConversationSocket(conversationId: string) {
     messageType?: string;
     voiceDurationMs?: number;
     waveform?: number[];
+    originalContent?: string;
+    translated?: boolean;
+    sourceLanguage?: string | null;
   }>("conversation:message", (data) => {
     if (data.senderId === userId) return; // Skip own messages
 
@@ -56,6 +59,9 @@ export function useConversationSocket(conversationId: string) {
       messageType: data.messageType ?? "text",
       voiceDurationMs: data.voiceDurationMs ?? null,
       waveform: data.waveform ?? null,
+      originalContent: data.originalContent,
+      translated: data.translated ?? false,
+      sourceLanguage: data.sourceLanguage ?? null,
     };
 
     // Instantly prepend to the first page of the messages cache

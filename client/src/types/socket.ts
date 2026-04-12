@@ -36,6 +36,12 @@ export interface ServerToClientEvents {
     senderId: string;
     content: string;
     sentAt: string;
+    originalContent?: string;
+    translated?: boolean;
+    sourceLanguage?: string | null;
+    messageType?: string;
+    voiceDurationMs?: number;
+    waveform?: number[];
   }) => void;
   "message:read": (data: {
     conversationId: string;

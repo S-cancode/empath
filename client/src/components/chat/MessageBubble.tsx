@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { colors } from "@/theme/colors";
 import { VoiceMessageBubble } from "./VoiceMessageBubble";
+import { resolveDisplay } from "./translationDisplay";
 
 interface MessageBubbleProps {
   content: string;
@@ -13,6 +14,10 @@ interface MessageBubbleProps {
   voiceDurationMs?: number;
   waveform?: number[];
   onLongPress?: () => void;
+  // Translation metadata (forwarded from the server via getMessages / socket)
+  originalContent?: string;
+  translated?: boolean;
+  sourceLanguage?: string | null;
 }
 
 const statusIcons: Record<string, string> = {
@@ -32,7 +37,12 @@ export function MessageBubble({
   voiceDurationMs,
   waveform,
   onLongPress,
+  originalContent,
+  translated,
+  sourceLanguage,
 }: MessageBubbleProps) {
+  const [showOriginal, setShowOriginal] = useState(false);
+
   if (messageType === "voice") {
     return (
       <VoiceMessageBubble
@@ -51,15 +61,21 @@ export function MessageBubble({
     minute: "2-digit",
   });
 
+  const display = resolveDisplay(
+    { content, originalContent, translated, sourceLanguage },
+    showOriginal,
+  );
+
   return (
     <Pressable
       style={[styles.wrapper, isMine && styles.wrapperMine]}
+      onPress={display.showToggle ? () => setShowOriginal((v) => !v) : undefined}
       onLongPress={onLongPress}
       delayLongPress={500}
     >
       <View style={[styles.bubble, isMine ? styles.mine : styles.theirs]}>
         <Text style={[styles.content, isMine ? styles.contentMine : styles.contentTheirs]}>
-          {content}
+          {display.text}
         </Text>
       </View>
       <View style={[styles.meta, isMine && styles.metaMine]}>
@@ -73,6 +89,11 @@ export function MessageBubble({
           </Text>
         )}
       </View>
+      {display.showToggle && display.toggleLabel && (
+        <Text style={[styles.translateLabel, isMine && styles.translateLabelMine]}>
+          {display.toggleLabel}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -148,5 +169,16 @@ const styles = StyleSheet.create({
   },
   statusRead: {
     color: colors.primary,
+  },
+  translateLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: colors.textTertiary,
+    marginTop: 2,
+    paddingHorizontal: 4,
+    fontStyle: "italic",
+  },
+  translateLabelMine: {
+    textAlign: "right",
   },
 });
