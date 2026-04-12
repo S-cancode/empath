@@ -15,6 +15,7 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
+  OPENROUTER_MODEL: z.string().default("google/gemini-2.0-flash-001"),
   ADMIN_SECRET: z.string().min(6).optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z
@@ -39,7 +40,18 @@ if (parsed.data.NODE_ENV === "production" && !parsed.data.OPENAI_API_KEY) {
   process.exit(1);
 }
 
+// If the configured model is namespaced ("provider/model" like
+// "google/gemini-2.0-flash-001"), the caller is routing through OpenRouter.
+// Default OPENAI_BASE_URL to the OpenRouter endpoint so operators don't have
+// to set two env vars in Railway — OPENAI_API_KEY alone is enough.
+const looksLikeOpenRouterModel =
+  parsed.data.OPENROUTER_MODEL && parsed.data.OPENROUTER_MODEL.includes("/");
+const resolvedBaseUrl =
+  parsed.data.OPENAI_BASE_URL ??
+  (looksLikeOpenRouterModel ? "https://openrouter.ai/api/v1" : undefined);
+
 export const config = {
   ...parsed.data,
   OPENAI_API_KEY: parsed.data.OPENAI_API_KEY ?? "sk-stub-placeholder-key",
+  OPENAI_BASE_URL: resolvedBaseUrl,
 };

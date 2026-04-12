@@ -6,7 +6,7 @@ import { isOnline } from "../presence/presence.service.js";
 import { getTierLimits } from "../config/tiers.js";
 import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError } from "../shared/errors.js";
 import { SubscriptionTier } from "../shared/types.js";
-import { detectLanguageHeuristic, translateBatch, isSupportedLanguage } from "../translate/translate.service.js";
+import { detectLanguageHeuristic, translateBatch, isSupportedLanguage, inferUserLocaleFromText } from "../translate/translate.service.js";
 
 const RECONNECT_REQUEST_PREFIX = "reconnect:";
 const NICKNAME_PREFIX = "nickname:";
@@ -307,6 +307,11 @@ export async function sendAsyncMessage(
     },
     createdAt: new Date(),
   });
+
+  // Fire-and-forget: bootstrap sender's preferredLanguage/dialect from their
+  // own message if they haven't set one. Debounced + TTL-gated inside the
+  // infer function so this is safe to call on every message.
+  void inferUserLocaleFromText(senderId, plaintext).catch(() => undefined);
 
   return message;
 }

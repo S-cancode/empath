@@ -2,10 +2,25 @@ import OpenAI from "openai";
 import { createHash } from "node:crypto";
 import { config } from "../config/index.js";
 import { redis } from "../lib/redis.js";
+import { prisma } from "../lib/prisma.js";
 
 const STUB_KEY = "sk-stub-placeholder-key";
 const CACHE_PREFIX = "translate:v1:";
 const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
+const INFER_LOCK_PREFIX = "translate:infer:";
+const INFER_LOCK_TTL_SECONDS = 60;
+const LANGUAGE_INFER_TTL_DAYS = 180;
+
+function isStubMode(): boolean {
+  return !config.OPENAI_API_KEY || config.OPENAI_API_KEY === STUB_KEY;
+}
+
+function getClient(): OpenAI {
+  return new OpenAI({
+    apiKey: config.OPENAI_API_KEY,
+    baseURL: config.OPENAI_BASE_URL,
+  });
+}
 
 export const SUPPORTED_LANGUAGES = [
   "en", "es", "fr", "de", "pt", "it", "zh", "ja", "ko", "ar", "hi", "ru",
@@ -127,7 +142,7 @@ export async function translateText(
   if (cached) return cached;
 
   // Stub mode (no API key): best-effort heuristic detection, pass text through.
-  if (!config.OPENAI_API_KEY || config.OPENAI_API_KEY === STUB_KEY) {
+  if (isStubMode()) {
     const detected = opts.knownSourceLang ?? detectLanguageHeuristic(text);
     const result: TranslateResult = {
       sourceLang: detected,
@@ -138,10 +153,7 @@ export async function translateText(
   }
 
   try {
-    const client = new OpenAI({
-      apiKey: config.OPENAI_API_KEY,
-      baseURL: config.OPENAI_BASE_URL,
-    });
+    const client = getClient();
 
     const targetName = LANGUAGE_NAMES[targetLang as SupportedLanguage];
     const dialectHint = opts.dialect ? ` (dialect: ${opts.dialect})` : "";
@@ -156,7 +168,7 @@ export async function translateText(
       `Respond ONLY with valid JSON: {"source_lang":"<ISO 639-1 code>","translated":"<text>"}`;
 
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: config.OPENROUTER_MODEL,
       max_tokens: Math.min(1024, Math.ceil(text.length * 1.5) + 128),
       temperature: 0,
       response_format: { type: "json_object" },
@@ -183,6 +195,127 @@ export async function translateText(
       sourceLang: opts.knownSourceLang ?? detectLanguageHeuristic(text),
       translated: text,
     };
+  }
+}
+
+export interface InferredLocale {
+  language: string | null;
+  dialect: string | null;
+}
+
+function normalizeDialect(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().slice(0, 20);
+  if (!trimmed || trimmed === "und") return null;
+  // Prefer BCP-47 shape like "es-MX": lowercase language, uppercase region.
+  const match = trimmed.match(/^([a-zA-Z]{2,3})(?:[-_]([a-zA-Z]{2,4}))?$/);
+  if (!match) return trimmed;
+  const lang = match[1].toLowerCase();
+  const region = match[2]?.toUpperCase();
+  return region ? `${lang}-${region}` : lang;
+}
+
+async function callLocaleDetector(text: string): Promise<InferredLocale> {
+  if (isStubMode()) {
+    const lang = detectLanguageHeuristic(text);
+    return { language: lang === "und" ? null : lang, dialect: null };
+  }
+
+  const systemPrompt =
+    `You identify the language and regional dialect of short user-written messages. ` +
+    `Respond ONLY with valid JSON: {"language":"<ISO 639-1 code>","dialect":"<BCP-47 tag like en-GB, es-MX, pt-BR, or null if not discernible>"}. ` +
+    `If the text is too short or ambiguous to judge confidently, set language to null.`;
+
+  const client = getClient();
+  const response = await client.chat.completions.create({
+    model: config.OPENROUTER_MODEL,
+    max_tokens: 64,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: text.slice(0, 500) },
+    ],
+  });
+
+  const raw = response.choices[0]?.message?.content;
+  if (!raw) throw new Error("empty response");
+  const parsed = JSON.parse(raw) as { language?: string | null; dialect?: string | null };
+  return {
+    language: parsed.language ? parsed.language.toLowerCase().slice(0, 10) : null,
+    dialect: normalizeDialect(parsed.dialect),
+  };
+}
+
+/**
+ * Infer the user's preferred language + dialect from a sample they wrote, and
+ * persist it to their User row. Intended to be called fire-and-forget from
+ * sendAsyncMessage so the first few messages bootstrap the user's locale
+ * without any UI.
+ *
+ * - Short-circuits if the user already has a preferredLanguage that was
+ *   detected within the last LANGUAGE_INFER_TTL_DAYS days.
+ * - Uses a Redis debounce lock so concurrent sends don't stampede the LLM.
+ * - Fail-open: any error swallows silently — the message was already delivered.
+ */
+export async function inferUserLocaleFromText(
+  userId: string,
+  sampleText: string,
+): Promise<InferredLocale | null> {
+  if (!sampleText || sampleText.trim().length < 5) return null;
+
+  // Acquire debounce lock — NX ensures only one caller per minute actually runs.
+  const lockKey = `${INFER_LOCK_PREFIX}${userId}`;
+  let gotLock = false;
+  try {
+    const res = await redis.set(lockKey, "1", "EX", INFER_LOCK_TTL_SECONDS, "NX");
+    gotLock = res === "OK";
+  } catch {
+    // If Redis is unavailable, fall through — we'd rather duplicate than drop.
+    gotLock = true;
+  }
+  if (!gotLock) return null;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        preferredLanguage: true,
+        preferredDialect: true,
+        languageDetectedAt: true,
+      },
+    });
+    if (!user) return null;
+
+    // If we already have a recently-detected language, skip.
+    const ttlMs = LANGUAGE_INFER_TTL_DAYS * 24 * 60 * 60 * 1000;
+    if (
+      user.preferredLanguage &&
+      user.languageDetectedAt &&
+      Date.now() - user.languageDetectedAt.getTime() < ttlMs
+    ) {
+      return {
+        language: user.preferredLanguage,
+        dialect: user.preferredDialect ?? null,
+      };
+    }
+
+    const detected = await callLocaleDetector(sampleText);
+    if (!detected.language) return null;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        preferredLanguage: detected.language,
+        preferredDialect: detected.dialect,
+        languageDetectedAt: new Date(),
+      },
+    });
+
+    return detected;
+  } catch (err) {
+    console.error("inferUserLocaleFromText failed:", err);
+    return null;
   }
 }
 
