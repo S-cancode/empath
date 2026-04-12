@@ -165,24 +165,22 @@ describe("conversation.service", () => {
   });
 
   describe("requestReconnect", () => {
-    it("allows free tier users to unarchive", async () => {
+    it("returns requested status on first request", async () => {
       (mockPrisma.conversation.findUnique as any).mockResolvedValue({
         id: "conv-1", userAId: "user-1", userBId: "user-2", status: "archived",
       });
-      (mockPrisma.conversation.update as any).mockResolvedValue({});
 
       const result = await requestReconnect("conv-1", "user-1", "free");
-      expect(result.status).toBe("reconnected");
+      expect(result.status).toBe("requested");
     });
 
-    it("immediately unarchives conversation", async () => {
+    it("stores reconnect request in Redis", async () => {
       (mockPrisma.conversation.findUnique as any).mockResolvedValue({
         id: "conv-1", userAId: "user-1", userBId: "user-2", status: "archived",
       });
-      (mockPrisma.conversation.update as any).mockResolvedValue({});
 
-      const result = await requestReconnect("conv-1", "user-1", "premium");
-      expect(result.status).toBe("reconnected");
+      await requestReconnect("conv-1", "user-1", "premium");
+      expect(redisStrings.get("reconnect:request:conv-1")).toBe("user-1");
     });
 
     it("reactivates on mutual consent", async () => {
@@ -191,10 +189,10 @@ describe("conversation.service", () => {
       });
       (mockPrisma.conversation.update as any).mockResolvedValue({});
 
-      // First user requests
-      redisStrings.set("reconnect:conv-1", "user-1");
+      // First user already requested
+      redisStrings.set("reconnect:request:conv-1", "user-1");
 
-      // Second user requests
+      // Second user requests — should reconnect
       const result = await requestReconnect("conv-1", "user-2", "premium");
       expect(result.status).toBe("reconnected");
       expect(mockPrisma.conversation.update).toHaveBeenCalledWith(

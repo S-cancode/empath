@@ -18,7 +18,7 @@ import { complianceRouter } from "./compliance/compliance.router.js";
 import { adminRouter } from "./admin/admin.router.js";
 import { startAutoArchiveWorker, stopAutoArchiveWorker, startRetentionWorker, stopRetentionWorker } from "./conversation/conversation.worker.js";
 import { setupChatGateway } from "./chat/chat.gateway.js";
-import { startMessageBuffer, stopMessageBuffer } from "./chat/chat.service.js";
+import { startMessageBuffer, stopMessageBuffer, flushMessages } from "./chat/chat.service.js";
 import { startMatchingWorker, stopMatchingWorker } from "./matching/matching.worker.js";
 import { prisma } from "./lib/prisma.js";
 import { redis } from "./lib/redis.js";
@@ -42,7 +42,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      "script-src": ["'self'", "'unsafe-inline'"],
+      "script-src": ["'self'"],
     },
   },
 }));
@@ -115,6 +115,7 @@ async function shutdown(): Promise<void> {
   stopMessageBuffer();
   stopAutoArchiveWorker();
   stopRetentionWorker();
+  await flushMessages(); // Persist any buffered live session messages before exit
   httpServer.close();
   await prisma.$disconnect();
   redis.disconnect();

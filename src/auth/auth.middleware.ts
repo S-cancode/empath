@@ -97,6 +97,24 @@ export function requireTier(minimumTier: SubscriptionTier) {
   };
 }
 
+export async function requireCompliance(req: Request, _res: Response, next: NextFunction): Promise<void> {
+  if (!req.user) throw new AuthError("Authentication required");
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.userId },
+    select: { ageConfirmedAt: true, sensitiveDataConsent: true },
+  });
+
+  if (!user?.ageConfirmedAt) {
+    throw new ForbiddenError("Age verification required");
+  }
+  if (!user.sensitiveDataConsent) {
+    throw new ForbiddenError("Sensitive data consent required");
+  }
+
+  next();
+}
+
 export function assertTier(userTier: string, minimumTier: SubscriptionTier): void {
   const userRank = TIER_RANK[userTier] ?? 0;
   const requiredRank = TIER_RANK[minimumTier] ?? 0;

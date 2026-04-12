@@ -10,14 +10,14 @@ import {
   getArchivedConversations,
   requestReconnect,
 } from "./conversation.service.js";
-import { authMiddleware, requireTier } from "../auth/auth.middleware.js";
+import { authMiddleware, requireTier, requireCompliance } from "../auth/auth.middleware.js";
 import { apiLimiter } from "../shared/rate-limiter.js";
 import { ValidationError } from "../shared/errors.js";
 import { SubscriptionTier } from "../shared/types.js";
 
 const router = Router();
 
-router.use(authMiddleware);
+router.use(authMiddleware, requireCompliance);
 router.use(apiLimiter);
 
 router.get("/", async (req, res, next) => {

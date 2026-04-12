@@ -524,7 +524,7 @@ export function setupChatGateway(io: Server): void {
     // --- Disconnect ---
 
     socket.on("disconnect", async () => {
-      setActiveConversation(userId, null).catch(() => {});
+      setActiveConversation(userId, null).catch((err) => console.error("Failed to clear active conversation:", err));
       await setOffline(userId);
       rateLimits.delete(userId);
       // Clean up crisis alert tracking for this user

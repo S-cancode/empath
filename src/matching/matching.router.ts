@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { joinQueue, leaveQueue, getDailyMatchStatus } from "./matching.service.js";
-import { authMiddleware, requireTier } from "../auth/auth.middleware.js";
+import { authMiddleware, requireTier, requireCompliance } from "../auth/auth.middleware.js";
 import { apiLimiter } from "../shared/rate-limiter.js";
 import { ValidationError, UpgradeRequiredError, ForbiddenError } from "../shared/errors.js";
 import { hasValidConsent } from "../compliance/compliance.service.js";
@@ -13,6 +13,9 @@ import { stripPII } from "../analyse/pii-stripper.js";
 import { redis } from "../lib/redis.js";
 
 const router = Router();
+
+// All matching routes require completed compliance flow
+router.use(authMiddleware, requireCompliance);
 
 const joinSchema = z.object({
   category: z.string().optional(),

@@ -54,7 +54,7 @@ export function bufferMessage(
   return encrypted;
 }
 
-async function flushMessages(): Promise<void> {
+export async function flushMessages(): Promise<void> {
   if (messageBuffer.length === 0) return;
 
   const batch = messageBuffer.splice(0);
@@ -91,13 +91,11 @@ export async function endLiveSession(liveSessionId: string): Promise<void> {
 }
 
 export async function extendLiveSession(liveSessionId: string): Promise<boolean> {
-  const session = await prisma.liveSession.findUnique({ where: { id: liveSessionId } });
-  if (!session || session.status !== "active" || session.extended) return false;
-
-  await prisma.liveSession.update({
-    where: { id: liveSessionId },
+  // Atomic check-and-set: only matches if not already extended, preventing double-extend race
+  const result = await prisma.liveSession.updateMany({
+    where: { id: liveSessionId, status: "active", extended: false },
     data: { extended: true },
   });
 
-  return true;
+  return result.count > 0;
 }

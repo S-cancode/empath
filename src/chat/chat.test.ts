@@ -19,6 +19,7 @@ vi.mock("../lib/prisma.js", () => ({
       create: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
   },
 }));
@@ -110,31 +111,14 @@ describe("chat.service", () => {
 
   describe("extendLiveSession", () => {
     it("extends an active non-extended session", async () => {
-      (mockPrisma.liveSession.findUnique as any).mockResolvedValue({
-        id: "ls-1",
-        conversationId: "conv-1",
-        status: "active",
-        startedAt: new Date(),
-        endedAt: null,
-        durationSeconds: null,
-        extended: false,
-      });
-      (mockPrisma.liveSession.update as any).mockResolvedValue({});
+      (mockPrisma.liveSession.updateMany as any).mockResolvedValue({ count: 1 });
 
       const result = await extendLiveSession("ls-1");
       expect(result).toBe(true);
     });
 
     it("rejects extending already-extended session", async () => {
-      (mockPrisma.liveSession.findUnique as any).mockResolvedValue({
-        id: "ls-1",
-        conversationId: "conv-1",
-        status: "active",
-        startedAt: new Date(),
-        endedAt: null,
-        durationSeconds: null,
-        extended: true,
-      });
+      (mockPrisma.liveSession.updateMany as any).mockResolvedValue({ count: 0 });
 
       const result = await extendLiveSession("ls-1");
       expect(result).toBe(false);

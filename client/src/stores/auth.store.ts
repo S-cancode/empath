@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Sentry from "@sentry/react-native";
 import type { Tier, User } from "@/types/api";
 import {
   getAccessToken,
@@ -47,7 +48,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setUser: (user) => {
     set({ user });
-    if (user?.alias) AsyncStorage.setItem("user_alias", user.alias).catch(() => {});
+    if (user?.alias) AsyncStorage.setItem("user_alias", user.alias).catch((err) => Sentry.captureException(err));
   },
 
   hydrate: async () => {

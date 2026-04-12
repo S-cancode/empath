@@ -355,8 +355,13 @@ export async function requestReconnect(
   const partnerId =
     conversation.userAId === userId ? conversation.userBId : conversation.userAId;
 
-  // Immediately unarchive — no mutual consent required during beta
-  {
+  // Mutual consent: check if the other user already requested reconnect
+  const reconnectKey = `reconnect:request:${conversationId}`;
+  const existingRequest = await redis.get(reconnectKey);
+
+  if (existingRequest && existingRequest !== userId) {
+    // Partner already requested — both agree, unarchive
+    await redis.del(reconnectKey);
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { status: "active" },
@@ -368,9 +373,27 @@ export async function requestReconnect(
       payload: { conversationId, reconnected: true },
       createdAt: new Date(),
     });
+    emitNotification({
+      type: "new_match",
+      recipientId: userId,
+      payload: { conversationId, reconnected: true },
+      createdAt: new Date(),
+    });
 
     return { status: "reconnected" };
   }
+
+  // First request — store and notify partner
+  await redis.set(reconnectKey, userId, "EX", 86400); // 24hr TTL
+
+  emitNotification({
+    type: "reconnect_requested",
+    recipientId: partnerId,
+    payload: { conversationId, requesterId: userId },
+    createdAt: new Date(),
+  });
+
+  return { status: "requested" };
 }
 
 export async function autoArchiveStaleConversations(staleDays = 7): Promise<number> {

@@ -12,7 +12,8 @@ export type NotificationType =
   | "live_session_started"
   | "live_session_ended"
   | "message_delivered"
-  | "message_read";
+  | "message_read"
+  | "reconnect_requested";
 
 export interface NotificationEvent {
   type: NotificationType;

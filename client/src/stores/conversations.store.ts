@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Sentry from "@sentry/react-native";
 import { apiClient } from "@/api/client";
 
 const NICKNAMES_KEY = "empath:nicknames";
@@ -149,7 +150,7 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
     // Sync nickname to server for push notifications
     apiClient
       .put(`/conversations/${conversationId}/nickname`, { nickname: name || null })
-      .catch(() => {});
+      .catch((err) => Sentry.captureException(err));
   },
 
   loadNicknames: async () => {
@@ -163,11 +164,11 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
           if (name) {
             apiClient
               .put(`/conversations/${convId}/nickname`, { nickname: name })
-              .catch(() => {});
+              .catch((err) => Sentry.captureException(err));
           }
         }
       }
-    } catch {}
+    } catch (err) { Sentry.captureException(err); }
   },
 
   setMatchProposal: (proposal) => set({ matchProposal: proposal }),
@@ -177,9 +178,9 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   setPendingMatchAccepted: (pending) => {
     set({ pendingMatchAccepted: pending });
     if (pending) {
-      AsyncStorage.setItem("pending_match_accepted", "true").catch(() => {});
+      AsyncStorage.setItem("pending_match_accepted", "true").catch((err) => Sentry.captureException(err));
     } else {
-      AsyncStorage.removeItem("pending_match_accepted").catch(() => {});
+      AsyncStorage.removeItem("pending_match_accepted").catch((err) => Sentry.captureException(err));
     }
   },
 }));
