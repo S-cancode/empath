@@ -13,7 +13,7 @@ const envSchema = z.object({
     .length(64)
     .regex(/^[0-9a-f]+$/i, "Must be a 64-char hex string (32 bytes)"),
   FRONTEND_URL: z.string().optional(),
-  OPENAI_API_KEY: z.string().optional().default("sk-stub-placeholder-key"),
+  OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
   ADMIN_SECRET: z.string().min(6).optional(),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -29,4 +29,17 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const config = parsed.data;
+// In production, OPENAI_API_KEY must be set — otherwise AI matching silently
+// degrades to stub mode. In dev/test we fall back to a visible placeholder
+// so unit tests can run without the secret.
+if (parsed.data.NODE_ENV === "production" && !parsed.data.OPENAI_API_KEY) {
+  console.error(
+    "OPENAI_API_KEY is required in production. Set it or explicitly run with NODE_ENV=development for stub mode.",
+  );
+  process.exit(1);
+}
+
+export const config = {
+  ...parsed.data,
+  OPENAI_API_KEY: parsed.data.OPENAI_API_KEY ?? "sk-stub-placeholder-key",
+};

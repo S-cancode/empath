@@ -50,6 +50,10 @@ model User {
   sensitiveDataConsent Boolean   @default(false) @map("sensitive_data_consent")
   consentWithdrawnAt   DateTime? @map("consent_withdrawn_at")
   deletedAt            DateTime? @map("deleted_at")
+  preferredLanguage    String?   @map("preferred_language")
+  preferredDialect     String?   @map("preferred_dialect")
+  autoTranslateEnabled Boolean   @default(true) @map("auto_translate_enabled")
+  languageDetectedAt   DateTime? @map("language_detected_at")
 
   conversationsAsA   Conversation[]     @relation("ConversationUserA")
   conversationsAsB   Conversation[]     @relation("ConversationUserB")
@@ -128,6 +132,7 @@ model Message {
   voiceDurationMs Int?     @map("voice_duration_ms")
   waveform       Json?
   flagged        Boolean   @default(false)
+  sourceLanguage String?   @map("source_language")
 
   conversation Conversation @relation(fields: [conversationId], references: [id])
   sender       User         @relation(fields: [senderId], references: [id])

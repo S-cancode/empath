@@ -206,8 +206,14 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
 
   const matched = candidates[bestMatch.memberIndex];
 
-  // Remove both from Redis queue
+  // Remove both from Redis queue AND from the Postgres vector queue so stale rows
+  // don't pollute future pgvector similarity queries while the proposal is pending.
   await redis.zrem(GLOBAL_QUEUE_KEY, members[anchorIdx], members[bestMatch.memberIndex]);
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
+    anchor.userId,
+    matched.userId,
+  );
 
   // Build proposal instead of creating conversation directly
   // Note: do NOT remove from queue, increment daily counts, or mark as recent
@@ -221,6 +227,10 @@ export async function tryMatchGlobal(): Promise<MatchResult | null> {
     proposalId,
     userAId: anchor.userId,
     userBId: matched.userId,
+    userAJoinedAt: anchor.joinedAt,
+    userBJoinedAt: matched.joinedAt,
+    userATier: anchor.tier,
+    userBTier: matched.tier,
     category: displayCategory,
     subTag: anchor.subTag || matched.subTag || null,
     similarity: bestMatch.similarity,
@@ -405,19 +415,25 @@ export async function declineProposal(
   // Re-queue the other user so they aren't left in limbo.
   // tryMatchGlobal() removed both from the Redis sorted set when creating the proposal,
   // so the other user needs to be re-added to be matchable again.
+  // Preserve their original joinedAt + tier so they don't lose queue position fairness.
   const otherCtx = decliningIsA ? proposal.matchContextB : proposal.matchContextA;
-  const otherUser = await prisma.user.findUnique({
-    where: { id: otherUserId },
-    select: { subscriptionTier: true },
-  });
   const otherCategory = decliningIsA ? proposal.userBCategory : proposal.userACategory;
+  const otherTier = (decliningIsA ? proposal.userBTier : proposal.userATier) as string | undefined;
+  const otherJoinedAt = (decliningIsA ? proposal.userBJoinedAt : proposal.userAJoinedAt) as number | undefined;
+
+  const tier = otherTier ?? (
+    (await prisma.user.findUnique({
+      where: { id: otherUserId },
+      select: { subscriptionTier: true },
+    }))?.subscriptionTier ?? "FREE"
+  );
 
   await joinQueue({
     userId: otherUserId,
-    tier: otherUser?.subscriptionTier ?? "FREE",
+    tier,
     category: otherCategory ?? "ai-prompt",
     subTag: proposal.subTag ?? undefined,
-    joinedAt: Date.now(),
+    joinedAt: otherJoinedAt ?? Date.now(),
     matchContext: otherCtx,
   });
 

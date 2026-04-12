@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { encrypt } from "../lib/crypto.js";
 import { createHash } from "node:crypto";
@@ -367,44 +368,48 @@ export async function deleteAccount(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new NotFoundError("User not found");
 
-  // Only delete messages SENT BY this user (not the other person's messages)
-  await prisma.message.deleteMany({ where: { senderId: userId } });
+  await prisma.$transaction(async (tx) => {
+    await tx.message.deleteMany({ where: { senderId: userId } });
+    await tx.rating.deleteMany({ where: { raterId: userId } });
+    await tx.crisisEvent.deleteMany({ where: { userId } });
 
-  // Delete ratings by this user
-  await prisma.rating.deleteMany({ where: { raterId: userId } });
+    // Clear any residual encrypted raw-prompt payloads and match context
+    // for conversations this user participated in (PII cleanup).
+    await tx.conversation.updateMany({
+      where: { OR: [{ userAId: userId }, { userBId: userId }] },
+      data: {
+        rawPromptCipher: null,
+        rawPromptIv: null,
+        rawPromptAuthTag: null,
+        matchContext: Prisma.JsonNull,
+      },
+    });
 
-  // Delete crisis events for this user
-  await prisma.crisisEvent.deleteMany({ where: { userId } });
+    // Archive any still-active conversations (keep archived/blocked as-is for partner context)
+    await tx.conversation.updateMany({
+      where: { status: "active", OR: [{ userAId: userId }, { userBId: userId }] },
+      data: { status: "archived" },
+    });
 
-  // Archive conversations (don't delete — the other user may still need them)
-  await prisma.conversation.updateMany({
-    where: { OR: [{ userAId: userId }, { userBId: userId }], status: "active" },
-    data: { status: "archived" },
-  });
+    await tx.blockedUser.deleteMany({ where: { userId } });
+    await tx.complaint.deleteMany({ where: { userId } });
 
-  // Delete blocks where user is the blocker
-  await prisma.blockedUser.deleteMany({ where: { userId } });
+    await tx.$executeRawUnsafe(
+      `DELETE FROM match_queue_entries WHERE user_id = $1`,
+      userId,
+    );
 
-  // Delete complaints submitted by this user
-  await prisma.complaint.deleteMany({ where: { userId } });
-
-  // Remove from match queue if present
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM match_queue_entries WHERE user_id = $1`,
-    userId,
-  );
-
-  // Soft-delete the user: nullify PII, keep record for retention periods
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      email: null,
-      anonymousAlias: "deleted-user",
-      deviceId: `deleted-${userId}`,
-      pushToken: null,
-      dateOfBirth: null,
-      deletedAt: new Date(),
-      tokenVersion: { increment: 1 }, // Invalidate all tokens
-    },
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        email: null,
+        anonymousAlias: "deleted-user",
+        deviceId: `deleted-${userId}`,
+        pushToken: null,
+        dateOfBirth: null,
+        deletedAt: new Date(),
+        tokenVersion: { increment: 1 },
+      },
+    });
   });
 }

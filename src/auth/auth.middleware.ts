@@ -55,17 +55,17 @@ export async function authMiddleware(req: Request, _res: Response, next: NextFun
     );
   }
 
-  // Update lastActiveAt (throttled to every 5 min per user)
+  // Update lastActiveAt (throttled to every 5 min per user).
+  // The throttle is only advanced on a successful write so that a transient DB
+  // failure doesn't lock lastActiveAt stale for the next 5 minutes.
   const now = Date.now();
-  const lastUpdate = lastActiveUpdates.get(req.user.userId) ?? 0;
+  const userId = req.user.userId;
+  const lastUpdate = lastActiveUpdates.get(userId) ?? 0;
   if (now - lastUpdate > ACTIVE_UPDATE_INTERVAL) {
-    lastActiveUpdates.set(req.user.userId, now);
-    try {
-      prisma.user.update({
-        where: { id: req.user.userId },
-        data: { lastActiveAt: new Date() },
-      })?.catch?.(() => {});
-    } catch {}
+    prisma.user
+      .update({ where: { id: userId }, data: { lastActiveAt: new Date() } })
+      .then(() => lastActiveUpdates.set(userId, now))
+      .catch((err) => console.error("lastActiveAt update failed:", err));
   }
 
   next();

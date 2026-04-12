@@ -14,11 +14,19 @@ interface BufferedMessage {
 const messageBuffer: BufferedMessage[] = [];
 const FLUSH_INTERVAL = 5000;
 const FLUSH_THRESHOLD = 20;
+const MAX_BUFFER_SIZE = 10_000;
+const MAX_CONSECUTIVE_FAILURES = 5;
 
 let flushTimer: ReturnType<typeof setInterval> | null = null;
+let flushInFlight = false;
+let consecutiveFailures = 0;
 
 export function startMessageBuffer(): void {
-  flushTimer = setInterval(flushMessages, FLUSH_INTERVAL);
+  flushTimer = setInterval(() => {
+    flushMessages().catch((err) => {
+      console.error("Scheduled message flush failed:", err);
+    });
+  }, FLUSH_INTERVAL);
 }
 
 export function stopMessageBuffer(): void {
@@ -26,7 +34,7 @@ export function stopMessageBuffer(): void {
     clearInterval(flushTimer);
     flushTimer = null;
   }
-  flushMessages();
+  flushMessages().catch((err) => console.error("Shutdown flush failed:", err));
 }
 
 export function bufferMessage(
@@ -47,23 +55,42 @@ export function bufferMessage(
     sentAt: new Date(),
   });
 
-  if (messageBuffer.length >= FLUSH_THRESHOLD) {
-    flushMessages();
+  if (messageBuffer.length >= FLUSH_THRESHOLD && !flushInFlight) {
+    flushMessages().catch((err) => console.error("Threshold flush failed:", err));
   }
 
   return encrypted;
 }
 
 export async function flushMessages(): Promise<void> {
+  if (flushInFlight) return;
   if (messageBuffer.length === 0) return;
 
+  flushInFlight = true;
   const batch = messageBuffer.splice(0);
 
   try {
     await prisma.message.createMany({ data: batch });
+    consecutiveFailures = 0;
   } catch (err) {
-    console.error("Failed to flush messages:", err);
-    messageBuffer.unshift(...batch);
+    consecutiveFailures++;
+    console.error(
+      `Failed to flush messages (failure ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`,
+      err,
+    );
+    if (
+      consecutiveFailures >= MAX_CONSECUTIVE_FAILURES ||
+      messageBuffer.length + batch.length > MAX_BUFFER_SIZE
+    ) {
+      console.error(
+        `Dropping ${batch.length} buffered live-session messages after repeated flush failures.`,
+      );
+      // Drop batch (dead letter) — further retention guaranteed by the DB layer recovering.
+    } else {
+      messageBuffer.unshift(...batch);
+    }
+  } finally {
+    flushInFlight = false;
   }
 }
 

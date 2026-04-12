@@ -16,6 +16,7 @@ import { safetyRouter } from "./safety/safety.router.js";
 import { setIoInstance } from "./safety/safety.service.js";
 import { complianceRouter } from "./compliance/compliance.router.js";
 import { adminRouter } from "./admin/admin.router.js";
+import { settingsRouter } from "./settings/settings.router.js";
 import { startAutoArchiveWorker, stopAutoArchiveWorker, startRetentionWorker, stopRetentionWorker } from "./conversation/conversation.worker.js";
 import { setupChatGateway } from "./chat/chat.gateway.js";
 import { startMessageBuffer, stopMessageBuffer, flushMessages } from "./chat/chat.service.js";
@@ -55,17 +56,19 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Routes
+// Routes — mount more-specific prefixes first so Express doesn't run the /match
+// router's blanket middleware (auth + requireCompliance) twice for /match/analyse.
 app.use("/auth", authRouter);
+app.use("/match/analyse", analyseRouter);
 app.use("/match", matchingRouter);
 app.use("/categories", categoriesRouter);
 app.use("/conversations", conversationRouter);
 app.use("/journal", journalingRouter);
-app.use("/match/analyse", analyseRouter);
 app.use("/notifications", pushTokenRouter);
 app.use("/safety", safetyRouter);
 app.use("/compliance", complianceRouter);
 app.use("/admin", adminRouter);
+app.use("/settings", settingsRouter);
 
 // Error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

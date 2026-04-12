@@ -1,6 +1,7 @@
 import type { Server } from "socket.io";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { decrypt } from "../lib/crypto.js";
+import { decrypt, encrypt } from "../lib/crypto.js";
 import { ValidationError, ForbiddenError, NotFoundError } from "../shared/errors.js";
 
 let ioInstance: Server | null = null;
@@ -45,9 +46,25 @@ export async function reportUser(
     throw new ValidationError("Reported user is not your conversation partner");
   }
 
-  // Capture full conversation log for moderation review
-  let reportedMessageContent: string | null = null;
-  let conversationLog: { totalMessageCount: number; conversationStartedAt: string; conversationLastMessageAt: string; messages: Array<{ senderId: string; senderAlias: string; content: string; messageType: string; sentAt: string }> } | null = null;
+  // Capture full conversation log for moderation review.
+  // Each message's plaintext content is re-encrypted with the message-encryption key
+  // before being written to Report.conversationLog so the at-rest encryption guarantee
+  // is preserved for reported conversations.
+  interface EncryptedLogMessage {
+    senderId: string;
+    senderAlias: string;
+    ciphertext: string;
+    iv: string;
+    authTag: string;
+    messageType: string;
+    sentAt: string;
+  }
+  let conversationLog: {
+    totalMessageCount: number;
+    conversationStartedAt: string;
+    conversationLastMessageAt: string;
+    messages: EncryptedLogMessage[];
+  } | null = null;
   try {
     const allMessages = await prisma.message.findMany({
       where: { conversationId },
@@ -55,19 +72,23 @@ export async function reportUser(
       include: { sender: { select: { id: true, anonymousAlias: true } } },
     });
     if (allMessages.length > 0) {
-      const logMessages = allMessages.map((m) => {
-        let content: string;
+      const logMessages: EncryptedLogMessage[] = allMessages.map((m) => {
+        let plaintext: string;
         try {
-          content = m.messageType === "voice"
-            ? "[voice note]"
-            : decrypt({ ciphertext: m.content, iv: m.iv, authTag: m.authTag });
+          plaintext =
+            m.messageType === "voice"
+              ? "[voice note]"
+              : decrypt({ ciphertext: m.content, iv: m.iv, authTag: m.authTag });
         } catch {
-          content = "[unable to decrypt]";
+          plaintext = "[unable to decrypt]";
         }
+        const re = encrypt(plaintext);
         return {
           senderId: m.sender.id,
           senderAlias: m.sender.anonymousAlias,
-          content,
+          ciphertext: re.ciphertext,
+          iv: re.iv,
+          authTag: re.authTag,
           messageType: m.messageType,
           sentAt: m.sentAt.toISOString(),
         };
@@ -79,12 +100,6 @@ export async function reportUser(
         conversationLastMessageAt: logMessages[logMessages.length - 1].sentAt,
         messages: logMessages,
       };
-
-      // Legacy text snapshot (last 10 messages) for backward compatibility
-      reportedMessageContent = logMessages
-        .slice(-10)
-        .map((m) => `[${m.senderAlias}]: ${m.content}`)
-        .join("\n");
     }
   } catch {
     // Non-critical — proceed without snapshot
@@ -96,9 +111,11 @@ export async function reportUser(
 
   const report = await prisma.report.create({
     data: {
-      conversationId, reporterId, reportedId, reason, details, reportedMessageContent,
+      conversationId, reporterId, reportedId, reason, details,
       priority,
-      ...(conversationLog ? { conversationLog } : {}),
+      ...(conversationLog
+        ? { conversationLog: conversationLog as unknown as Prisma.InputJsonValue }
+        : {}),
     },
   });
 

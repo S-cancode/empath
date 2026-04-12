@@ -80,9 +80,38 @@ export async function getReportDetail(reportId: string) {
   let messagesSource: "report_log" | "live" | "unavailable" = "unavailable";
   let messagesNote: string | undefined;
 
-  const log = report.conversationLog as { messages?: Array<Record<string, unknown>>; totalMessageCount?: number } | null;
+  interface StoredLogMessage {
+    senderId: string;
+    senderAlias: string;
+    content?: string; // legacy plaintext
+    ciphertext?: string;
+    iv?: string;
+    authTag?: string;
+    messageType: string;
+    sentAt: string;
+  }
+  const log = report.conversationLog as { messages?: StoredLogMessage[]; totalMessageCount?: number } | null;
   if (log?.messages && log.messages.length > 0) {
-    messages = log.messages;
+    messages = log.messages.map((m) => {
+      let content: string;
+      if (m.ciphertext && m.iv && m.authTag) {
+        try {
+          content = decrypt({ ciphertext: m.ciphertext, iv: m.iv, authTag: m.authTag });
+        } catch {
+          content = "[unable to decrypt]";
+        }
+      } else {
+        // Backward-compat: older reports stored plaintext content
+        content = m.content ?? "[missing]";
+      }
+      return {
+        senderId: m.senderId,
+        senderAlias: m.senderAlias,
+        content,
+        messageType: m.messageType,
+        sentAt: m.sentAt,
+      };
+    });
     messagesSource = "report_log";
   } else {
     // Fallback: try live messages from database

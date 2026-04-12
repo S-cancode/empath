@@ -39,11 +39,15 @@ vi.mock("../lib/prisma.js", () => ({
       create: vi.fn(),
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      update: vi.fn(),
       updateMany: vi.fn(),
       deleteMany: vi.fn(),
     },
     report: {
       findMany: vi.fn(),
+    },
+    user: {
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -59,6 +63,7 @@ vi.mock("../presence/presence.service.js", () => ({
 import {
   getConversationsForUser,
   sendAsyncMessage,
+  getMessages,
   markDelivered,
   markRead,
   archiveConversation,
@@ -66,6 +71,7 @@ import {
   autoArchiveStaleConversations,
   deleteExpiredMessages,
 } from "./conversation.service.js";
+import { encrypt } from "../lib/crypto.js";
 import { prisma } from "../lib/prisma.js";
 import { emitNotification } from "../notifications/notification.service.js";
 
@@ -123,6 +129,81 @@ describe("conversation.service", () => {
         id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
       });
       await expect(sendAsyncMessage("conv-1", "user-3", "Hello!")).rejects.toThrow("Not a participant");
+    });
+
+    it("tags detected source language on outgoing messages", async () => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
+        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
+      });
+      (mockPrisma.conversation.update as any).mockResolvedValue({});
+      (mockPrisma.message.create as any).mockImplementation(async (args: any) => ({
+        id: "msg-1", ...args.data, sentAt: new Date(),
+      }));
+
+      await sendAsyncMessage("conv-1", "user-1", "こんにちは、お元気ですか？");
+      expect(mockPrisma.message.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ sourceLanguage: "ja" }),
+        }),
+      );
+    });
+  });
+
+  describe("getMessages with translation", () => {
+    it("returns plaintext unchanged when reader has autoTranslate off", async () => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
+        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
+        userA: { deletedAt: null }, userB: { deletedAt: null },
+      });
+      const enc = encrypt("Hello from user 1");
+      (mockPrisma.message.findMany as any).mockResolvedValue([
+        {
+          id: "msg-1", senderId: "user-1", content: enc.ciphertext, iv: enc.iv, authTag: enc.authTag,
+          sentAt: new Date(), deliveryStatus: "sent", liveSessionId: null,
+          messageType: "text", voiceDurationMs: null, waveform: null, sourceLanguage: "en",
+        },
+      ]);
+      (mockPrisma.user.findUnique as any).mockResolvedValue({
+        preferredLanguage: "es", preferredDialect: null, autoTranslateEnabled: false,
+      });
+
+      const result = await getMessages("conv-1", "user-2");
+      expect(result[0].content).toBe("Hello from user 1");
+      expect(result[0].translated).toBe(false);
+    });
+
+    it("translates other-party messages when autoTranslate is on", async () => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
+        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
+        userA: { deletedAt: null }, userB: { deletedAt: null },
+      });
+      const encPartner = encrypt("Hello from user 1");
+      const encSelf = encrypt("My own reply");
+      (mockPrisma.message.findMany as any).mockResolvedValue([
+        {
+          id: "msg-1", senderId: "user-1", content: encPartner.ciphertext, iv: encPartner.iv, authTag: encPartner.authTag,
+          sentAt: new Date(), deliveryStatus: "sent", liveSessionId: null,
+          messageType: "text", voiceDurationMs: null, waveform: null, sourceLanguage: "en",
+        },
+        {
+          id: "msg-2", senderId: "user-2", content: encSelf.ciphertext, iv: encSelf.iv, authTag: encSelf.authTag,
+          sentAt: new Date(), deliveryStatus: "sent", liveSessionId: null,
+          messageType: "text", voiceDurationMs: null, waveform: null, sourceLanguage: "en",
+        },
+      ]);
+      (mockPrisma.user.findUnique as any).mockResolvedValue({
+        preferredLanguage: "es", preferredDialect: null, autoTranslateEnabled: true,
+      });
+
+      const result = await getMessages("conv-1", "user-2");
+      // Partner message gets translated (stub adds [es] prefix); own message is unchanged.
+      const partnerMsg = result.find((m) => m.id === "msg-1")!;
+      const selfMsg = result.find((m) => m.id === "msg-2")!;
+      expect(partnerMsg.translated).toBe(true);
+      expect(partnerMsg.content).toBe("[es] Hello from user 1");
+      expect(partnerMsg.originalContent).toBe("Hello from user 1");
+      expect(selfMsg.translated).toBe(false);
+      expect(selfMsg.content).toBe("My own reply");
     });
   });
 
@@ -217,15 +298,28 @@ describe("conversation.service", () => {
   });
 
   describe("deleteExpiredMessages", () => {
-    it("deletes messages older than retention period, skipping active reports", async () => {
+    it("deletes old live-session messages and old async messages from inactive conversations", async () => {
       (mockPrisma.report.findMany as any).mockResolvedValue([]);
-      (mockPrisma.message.deleteMany as any).mockResolvedValue({ count: 12 });
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([
+        { id: "conv-archived" },
+      ]);
+      (mockPrisma.message.deleteMany as any)
+        .mockResolvedValueOnce({ count: 8 }) // live-session deletes
+        .mockResolvedValueOnce({ count: 4 }); // async deletes in archived convs
 
-      const count = await deleteExpiredMessages(7);
+      const count = await deleteExpiredMessages(7, 30);
 
       expect(count).toBe(12);
-      expect(mockPrisma.message.deleteMany).toHaveBeenCalledWith({
+      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(1, {
         where: {
+          liveSessionId: { not: null },
+          sentAt: { lt: expect.any(Date) },
+        },
+      });
+      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          liveSessionId: null,
+          conversationId: { in: ["conv-archived"] },
           sentAt: { lt: expect.any(Date) },
         },
       });
@@ -235,17 +329,43 @@ describe("conversation.service", () => {
       (mockPrisma.report.findMany as any).mockResolvedValue([
         { conversationId: "conv-reported" },
       ]);
-      (mockPrisma.message.deleteMany as any).mockResolvedValue({ count: 5 });
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([
+        { id: "conv-archived" },
+        { id: "conv-reported" },
+      ]);
+      (mockPrisma.message.deleteMany as any)
+        .mockResolvedValueOnce({ count: 3 })
+        .mockResolvedValueOnce({ count: 2 });
 
-      const count = await deleteExpiredMessages(7);
+      const count = await deleteExpiredMessages(7, 30);
 
       expect(count).toBe(5);
-      expect(mockPrisma.message.deleteMany).toHaveBeenCalledWith({
+      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(1, {
         where: {
+          liveSessionId: { not: null },
           sentAt: { lt: expect.any(Date) },
           conversationId: { notIn: ["conv-reported"] },
         },
       });
+      // Async pass excludes the reported conversation by filtering the inactive list.
+      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          liveSessionId: null,
+          conversationId: { in: ["conv-archived"] },
+          sentAt: { lt: expect.any(Date) },
+        },
+      });
+    });
+
+    it("skips async deletion when there are no inactive conversations", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([]);
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([]);
+      (mockPrisma.message.deleteMany as any).mockResolvedValueOnce({ count: 7 });
+
+      const count = await deleteExpiredMessages(7, 30);
+
+      expect(count).toBe(7);
+      expect(mockPrisma.message.deleteMany).toHaveBeenCalledTimes(1);
     });
   });
 });

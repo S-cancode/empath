@@ -12,13 +12,26 @@ function hashDeviceId(deviceId: string): string {
   return createHash("sha256").update(deviceId).digest("hex");
 }
 
+const ALIAS_ADJECTIVES = [
+  "Gentle", "Kind", "Warm", "Calm", "Brave", "Quiet", "Bright", "Soft",
+  "Steady", "Tender", "Earnest", "Humble", "Patient", "Clever", "Thoughtful",
+  "Curious", "Honest", "Lively", "Hopeful", "Graceful", "Sincere", "Fearless",
+  "Peaceful", "Radiant", "Serene", "Noble", "Merry", "Bold", "Wise", "Swift",
+  "Sunny", "Mellow",
+];
+const ALIAS_NOUNS = [
+  "River", "Cloud", "Star", "Moon", "Leaf", "Wave", "Stone", "Light",
+  "Forest", "Mountain", "Meadow", "Harbor", "Valley", "Ember", "Dawn",
+  "Dusk", "Brook", "Pine", "Willow", "Comet", "Garden", "Horizon", "Spark",
+  "Tide", "Feather", "Reef", "Petal", "Canyon", "Orchard", "Fjord", "Glade",
+  "Lantern",
+];
+
 function generateAlias(): string {
-  const adjectives = ["Gentle", "Kind", "Warm", "Calm", "Brave", "Quiet", "Bright", "Soft"];
-  const nouns = ["River", "Cloud", "Star", "Moon", "Leaf", "Wave", "Stone", "Light"];
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  const num = randomBytes(2).readUInt16BE(0) % 1000;
-  return `${adj}${noun}${num}`;
+  const adj = ALIAS_ADJECTIVES[Math.floor(Math.random() * ALIAS_ADJECTIVES.length)];
+  const noun = ALIAS_NOUNS[Math.floor(Math.random() * ALIAS_NOUNS.length)];
+  const num = randomBytes(2).readUInt16BE(0) % 10_000; // 0000..9999
+  return `${adj}${noun}${num.toString().padStart(4, "0")}`;
 }
 
 function signAccessToken(payload: JwtPayload): string {

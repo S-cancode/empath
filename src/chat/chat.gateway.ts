@@ -13,6 +13,7 @@ import { redis } from "../lib/redis.js";
 import { getTierLimits } from "../config/tiers.js";
 import { SubscriptionTier } from "../shared/types.js";
 import { prisma } from "../lib/prisma.js";
+import { translateText, isSupportedLanguage } from "../translate/translate.service.js";
 
 const MESSAGE_RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60 * 1000;
@@ -57,6 +58,7 @@ setInterval(() => {
   if (liveSessionTimers.size > MAX_MAP_SIZE) {
     for (const timer of liveSessionTimers.values()) clearTimeout(timer);
     liveSessionTimers.clear();
+    liveSessionEndsAt.clear();
   }
   if (extendRequests.size > MAX_MAP_SIZE) extendRequests.clear();
   if (liveSessionInvites.size > MAX_MAP_SIZE) liveSessionInvites.clear();
@@ -76,18 +78,36 @@ function checkMessageRate(userId: string): boolean {
   return tracker.count <= MESSAGE_RATE_LIMIT;
 }
 
-function startLiveSessionTimer(io: Server, liveSessionId: string, duration: number): void {
+// endsAt tracked separately from timers so extensions can add to remaining time,
+// not replace it.
+const liveSessionEndsAt = new Map<string, number>();
+
+function scheduleLiveSessionEnd(io: Server, liveSessionId: string, endsAt: number): void {
   const existing = liveSessionTimers.get(liveSessionId);
   if (existing) clearTimeout(existing);
+  liveSessionEndsAt.set(liveSessionId, endsAt);
 
+  const delay = Math.max(0, endsAt - Date.now());
   const timer = setTimeout(async () => {
     await endLiveSession(liveSessionId);
     io.to(`livesession:${liveSessionId}`).emit("livesession:ended", { reason: "timeout", liveSessionId });
     liveSessionTimers.delete(liveSessionId);
+    liveSessionEndsAt.delete(liveSessionId);
     extendRequests.delete(liveSessionId);
-  }, duration);
+  }, delay);
 
   liveSessionTimers.set(liveSessionId, timer);
+}
+
+function startLiveSessionTimer(io: Server, liveSessionId: string, duration: number): void {
+  scheduleLiveSessionEnd(io, liveSessionId, Date.now() + duration);
+}
+
+function extendLiveSessionTimer(io: Server, liveSessionId: string, extensionMs: number): void {
+  const currentEnd = liveSessionEndsAt.get(liveSessionId) ?? Date.now();
+  // Extension adds to whatever time remains (or, if already past, starts from now).
+  const base = Math.max(currentEnd, Date.now());
+  scheduleLiveSessionEnd(io, liveSessionId, base + extensionMs);
 }
 
 async function handleCrisisDetection(
@@ -255,11 +275,50 @@ export function setupChatGateway(io: Server): void {
 
         const message = await sendAsyncMessage(data.conversationId, userId, data.content);
 
+        // Look up the partner's translation prefs and translate before broadcasting
+        // so the recipient's socket receives pre-translated content. Sender's own
+        // echo (their local UI) uses the original text.
+        const conversation = await prisma.conversation.findUnique({
+          where: { id: data.conversationId },
+          select: { userAId: true, userBId: true },
+        });
+        const partnerId = conversation
+          ? conversation.userAId === userId ? conversation.userBId : conversation.userAId
+          : null;
+
+        let translatedContent: string | null = null;
+        let partnerPrefs: { preferredLanguage: string | null; preferredDialect: string | null; autoTranslateEnabled: boolean } | null = null;
+        if (partnerId) {
+          partnerPrefs = await prisma.user.findUnique({
+            where: { id: partnerId },
+            select: { preferredLanguage: true, preferredDialect: true, autoTranslateEnabled: true },
+          });
+          if (
+            partnerPrefs?.autoTranslateEnabled &&
+            partnerPrefs.preferredLanguage &&
+            isSupportedLanguage(partnerPrefs.preferredLanguage) &&
+            message.sourceLanguage !== partnerPrefs.preferredLanguage
+          ) {
+            try {
+              const r = await translateText(data.content, partnerPrefs.preferredLanguage, {
+                dialect: partnerPrefs.preferredDialect ?? undefined,
+                knownSourceLang: message.sourceLanguage ?? undefined,
+              });
+              if (r.translated !== data.content) translatedContent = r.translated;
+            } catch (err) {
+              console.error("gateway translate failed:", err);
+            }
+          }
+        }
+
         socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
           conversationId: data.conversationId,
           messageId: message.id,
           senderId: userId,
-          content: data.content,
+          content: translatedContent ?? data.content,
+          originalContent: data.content,
+          translated: translatedContent !== null,
+          sourceLanguage: message.sourceLanguage ?? null,
           sentAt: message.sentAt.toISOString(),
         });
       } catch (err: any) {
@@ -268,6 +327,10 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("conversation:voice-note", async (data: { conversationId: string; audio: string; durationMs: number; waveform?: number[] }) => {
+      // NOTE: crisis detection is keyword-based and runs on text only. Voice notes
+      // are not transcribed server-side, so they bypass detection. Safety relies on
+      // the recipient reporting flow for voice content. If server-side transcription
+      // is added (e.g. Whisper), feed the transcript into handleCrisisDetection here.
       if (!checkMessageRate(userId)) {
         socket.emit("error", { message: "Rate limit exceeded" });
         return;
@@ -457,7 +520,7 @@ export function setupChatGateway(io: Server): void {
       if (requests.size >= 2) {
         const extended = await extendLiveSession(data.liveSessionId);
         if (extended) {
-          startLiveSessionTimer(io, data.liveSessionId, limits.extendedDurationMs);
+          extendLiveSessionTimer(io, data.liveSessionId, limits.extendedDurationMs);
           io.to(`livesession:${data.liveSessionId}`).emit("livesession:extended", {
             liveSessionId: data.liveSessionId,
           });
@@ -475,6 +538,7 @@ export function setupChatGateway(io: Server): void {
         clearTimeout(timer);
         liveSessionTimers.delete(data.liveSessionId);
       }
+      liveSessionEndsAt.delete(data.liveSessionId);
       extendRequests.delete(data.liveSessionId);
 
       emitNotification({

@@ -176,6 +176,7 @@ describe("authMiddleware", () => {
       banned: false,
       suspendedUntil: null,
     });
+    (prisma.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     const req = { headers: { authorization: `Bearer ${token}` } } as any;
     const res = {} as any;

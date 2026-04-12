@@ -6,6 +6,7 @@ import { isOnline } from "../presence/presence.service.js";
 import { getTierLimits } from "../config/tiers.js";
 import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError } from "../shared/errors.js";
 import { SubscriptionTier } from "../shared/types.js";
+import { detectLanguageHeuristic, translateBatch, isSupportedLanguage } from "../translate/translate.service.js";
 
 const RECONNECT_REQUEST_PREFIX = "reconnect:";
 const NICKNAME_PREFIX = "nickname:";
@@ -80,12 +81,24 @@ export async function getConversationsForUser(userId: string) {
 export async function getConversation(conversationId: string, userId: string) {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
+    include: {
+      userA: { select: { deletedAt: true } },
+      userB: { select: { deletedAt: true } },
+    },
   });
   if (!conversation) throw new NotFoundError("Conversation not found");
   if (conversation.userAId !== userId && conversation.userBId !== userId) {
     throw new ForbiddenError("Not a participant");
   }
-  return conversation;
+
+  const partner = conversation.userAId === userId ? conversation.userB : conversation.userA;
+  if (partner?.deletedAt) {
+    throw new NotFoundError("Conversation partner is no longer available");
+  }
+
+  // Strip the relation fields before returning so the shape matches existing callers.
+  const { userA: _a, userB: _b, ...rest } = conversation;
+  return rest;
 }
 
 function assertConversationActive(conversation: { status: string }) {
@@ -106,33 +119,94 @@ export async function getMessages(
   // If user deleted this conversation, only show messages after deletion
   const deletedAt = await redis.get(`deleted:conv:${userId}:${conversationId}`);
 
-  const messages = await prisma.message.findMany({
-    where: {
-      conversationId,
-      ...(deletedAt ? { sentAt: { gt: new Date(deletedAt) } } : {}),
-    },
-    orderBy: { sentAt: "desc" },
-    take: limit,
-    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    select: {
-      id: true,
-      senderId: true,
-      content: true,
-      iv: true,
-      authTag: true,
-      sentAt: true,
-      deliveryStatus: true,
-      liveSessionId: true,
-      messageType: true,
-      voiceDurationMs: true,
-      waveform: true,
-    },
-  });
+  const [messages, reader] = await Promise.all([
+    prisma.message.findMany({
+      where: {
+        conversationId,
+        ...(deletedAt ? { sentAt: { gt: new Date(deletedAt) } } : {}),
+      },
+      orderBy: { sentAt: "desc" },
+      take: limit,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        senderId: true,
+        content: true,
+        iv: true,
+        authTag: true,
+        sentAt: true,
+        deliveryStatus: true,
+        liveSessionId: true,
+        messageType: true,
+        voiceDurationMs: true,
+        waveform: true,
+        sourceLanguage: true,
+      },
+    }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { preferredLanguage: true, preferredDialect: true, autoTranslateEnabled: true },
+    }),
+  ]);
 
-  return messages.map((m) => ({
+  const decrypted = messages.map((m) => ({
     ...m,
     content: decrypt({ ciphertext: m.content, iv: m.iv, authTag: m.authTag }),
   }));
+
+  const shouldTranslate =
+    reader?.autoTranslateEnabled === true &&
+    reader.preferredLanguage &&
+    isSupportedLanguage(reader.preferredLanguage);
+
+  if (!shouldTranslate) {
+    return decrypted.map((m) => ({ ...m, originalContent: m.content, translated: false }));
+  }
+
+  const target = reader!.preferredLanguage!;
+  const candidates = decrypted.filter(
+    (m) =>
+      m.messageType === "text" &&
+      m.senderId !== userId &&
+      (!m.sourceLanguage || m.sourceLanguage !== target),
+  );
+
+  if (candidates.length === 0) {
+    return decrypted.map((m) => ({ ...m, originalContent: m.content, translated: false }));
+  }
+
+  const translations = await translateBatch(
+    candidates.map((m) => ({ id: m.id, text: m.content, sourceLang: m.sourceLanguage })),
+    target,
+    { dialect: reader!.preferredDialect ?? undefined },
+  );
+
+  // Backfill newly detected source languages so subsequent reads can short-circuit.
+  const backfills = candidates
+    .filter((m) => !m.sourceLanguage && translations.get(m.id)?.sourceLang)
+    .map((m) =>
+      prisma.message.update({
+        where: { id: m.id },
+        data: { sourceLanguage: translations.get(m.id)!.sourceLang },
+      }).catch(() => undefined),
+    );
+  if (backfills.length > 0) {
+    // fire-and-forget: don't block the response
+    Promise.all(backfills).catch(() => undefined);
+  }
+
+  return decrypted.map((m) => {
+    const t = translations.get(m.id);
+    if (!t || t.sourceLang === target) {
+      return { ...m, originalContent: m.content, translated: false };
+    }
+    return {
+      ...m,
+      content: t.translated,
+      originalContent: m.content,
+      translated: true,
+    };
+  });
 }
 
 export async function sendVoiceNote(
@@ -199,6 +273,7 @@ export async function sendAsyncMessage(
       : conversation.userAId;
 
   const encrypted = encrypt(plaintext);
+  const sourceLanguage = detectLanguageHeuristic(plaintext);
 
   const message = await prisma.message.create({
     data: {
@@ -207,6 +282,7 @@ export async function sendAsyncMessage(
       content: encrypted.ciphertext,
       iv: encrypted.iv,
       authTag: encrypted.authTag,
+      sourceLanguage: sourceLanguage === "und" ? null : sourceLanguage,
     },
   });
 
@@ -414,11 +490,24 @@ export async function autoArchiveStaleConversations(staleDays = 7): Promise<numb
   return result.count;
 }
 
-export async function deleteExpiredMessages(retentionDays = 7): Promise<number> {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - retentionDays);
+/**
+ * Retention policy:
+ * - Live-session messages (has liveSessionId) are transient: deleted after `liveSessionRetentionDays`.
+ * - Async messages in archived/blocked conversations: deleted after `archivedRetentionDays` past archive.
+ *   We approximate archive time by using the message's sentAt (no per-conversation archivedAt column).
+ * - Async messages in active conversations are preserved (persistent async threads).
+ * - Messages in conversations with pending/reviewing reports are never deleted.
+ */
+export async function deleteExpiredMessages(
+  liveSessionRetentionDays = 7,
+  archivedRetentionDays = 30,
+): Promise<number> {
+  const liveCutoff = new Date();
+  liveCutoff.setDate(liveCutoff.getDate() - liveSessionRetentionDays);
 
-  // Find conversations with active (unresolved) reports — protect their messages
+  const archivedCutoff = new Date();
+  archivedCutoff.setDate(archivedCutoff.getDate() - archivedRetentionDays);
+
   const activeReports = await prisma.report.findMany({
     where: { status: { in: ["pending", "reviewing"] } },
     select: { conversationId: true },
@@ -426,14 +515,36 @@ export async function deleteExpiredMessages(retentionDays = 7): Promise<number> 
   });
   const protectedIds = activeReports.map((r) => r.conversationId);
 
-  const result = await prisma.message.deleteMany({
-    where: {
-      sentAt: { lt: cutoff },
-      ...(protectedIds.length > 0
-        ? { conversationId: { notIn: protectedIds } }
-        : {}),
-    },
-  });
+  // 1. Delete old live-session messages (not in a protected conversation).
+  const liveWhere: Record<string, unknown> = {
+    liveSessionId: { not: null },
+    sentAt: { lt: liveCutoff },
+  };
+  if (protectedIds.length > 0) {
+    liveWhere.conversationId = { notIn: protectedIds };
+  }
+  const liveResult = await prisma.message.deleteMany({ where: liveWhere as never });
 
-  return result.count;
+  // 2. Delete old async messages only if their conversation is archived or blocked.
+  const inactiveConversations = await prisma.conversation.findMany({
+    where: { status: { in: ["archived", "blocked"] } },
+    select: { id: true },
+  });
+  const inactiveIds = inactiveConversations
+    .map((c) => c.id)
+    .filter((id) => !protectedIds.includes(id));
+
+  let asyncCount = 0;
+  if (inactiveIds.length > 0) {
+    const asyncResult = await prisma.message.deleteMany({
+      where: {
+        liveSessionId: null,
+        conversationId: { in: inactiveIds },
+        sentAt: { lt: archivedCutoff },
+      },
+    });
+    asyncCount = asyncResult.count;
+  }
+
+  return liveResult.count + asyncCount;
 }
