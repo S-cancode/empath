@@ -28,7 +28,7 @@ We may warn, suspend, or permanently ban accounts that violate these rules.
 You can report content or users using the in-app report function.
 
 6. Complaints
-To make a complaint about how we handled a report or moderation decision, contact complaints@empath.app. We will respond within 14 days.
+To make a complaint about how we handled a report or moderation decision, contact help@empathapp.co.uk. We will respond within 14 days.
 
 7. Disclaimer
 Conversations on this platform are with other users, not professionals. Nothing said on this platform constitutes medical advice, diagnosis, or treatment. We are not responsible for the content of conversations between users.

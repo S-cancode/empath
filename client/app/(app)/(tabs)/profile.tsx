@@ -131,7 +131,7 @@ export default function ProfileScreen() {
   };
 
   const handleComplaints = () => {
-    Linking.openURL("mailto:complaints@empath.app?subject=Complaint");
+    Linking.openURL("mailto:help@empathapp.co.uk?subject=Complaint");
   };
 
   return (

@@ -85,7 +85,7 @@ export default function TermsScreen() {
         <Text style={styles.sectionTitle}>6. Complaints</Text>
         <Text style={styles.body}>
           To make a complaint about how we handled a report or moderation
-          decision, contact complaints@empath.app. We will respond within 14
+          decision, contact help@empathapp.co.uk. We will respond within 14
           days.
         </Text>
 
