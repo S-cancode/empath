@@ -15,7 +15,7 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
-  OPENROUTER_MODEL: z.string().default("google/gemini-2.0-flash-001"),
+  OPENROUTER_MODEL: z.string().default("gpt-4o-mini"),
   ADMIN_SECRET: z.string().min(6).optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z
