@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "berryManaged": true,
+            "command": "printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"Berry evidence verifier is installed. Prefer Berry MCP tools for factual claims and verification. Embedded command: /Users/shivandongha/.local/pipx/venvs/berry/bin/berry mcp --server classic\"}}'",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "berryManaged": true,
+            "command": "printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"Berry evidence verifier is installed. Prefer Berry MCP tools for factual claims and verification. Embedded command: /Users/shivandongha/.local/pipx/venvs/berry/bin/berry mcp --server classic\"}}'",
+            "type": "command"
+          }
+        ],
+        "matcher": "Read|Glob"
+      }
+    ]
+  }
+}
