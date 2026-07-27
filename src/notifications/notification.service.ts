@@ -8,6 +8,7 @@ export type NotificationType =
   | "match_proposed"
   | "match_confirmed"
   | "match_declined"
+  | "match_expired"
   | "live_session_invite"
   | "live_session_started"
   | "live_session_ended"

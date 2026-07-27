@@ -12,9 +12,17 @@ const RECENT_MATCH_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h cooldown window
 const RECENT_MATCH_MAX_PENALTY = 0.3; // subtracted from hybrid score at t=0
 const DAILY_MATCH_PREFIX = "matches:";
 const ANALYSE_PENDING_PREFIX = "analyse:pending:";
-const STALE_ENTRY_MS = 30 * 60 * 1000;
+const STALE_ENTRY_MS = 7 * 24 * 60 * 60 * 1000; // async matching: stay queued up to a week
 const MIN_HYBRID_SCORE = 0.25;
 const QUEUE_UPDATED_CHANNEL = "queue:updated";
+// Proposals are async too: the counterpart may be offline and reached via push,
+// so they get a day to respond. The Redis keys outlive the logical deadline by
+// an hour so the expiry sweep can still read the payload to re-queue both users.
+const PROPOSAL_TTL_SECONDS = 24 * 60 * 60;
+const PROPOSAL_KEY_TTL_SECONDS = PROPOSAL_TTL_SECONDS + 60 * 60;
+const PROPOSAL_EXPIRY_ZSET = "match:proposals:expiry";
+// Wait bonus ramps over 48h so long-waiters gradually win ties in a sparse queue.
+const WAIT_BONUS_RAMP_MS = 48 * 60 * 60 * 1000;
 
 // --- Queue membership (Postgres is source of truth) ---
 
@@ -230,7 +238,7 @@ export async function tryMatchAllPairs(): Promise<MatchResult[]> {
 
       const cosinePart = sim.similarity * 0.9;
       const waitMs = Date.now() - candidate.joinedAt;
-      const waitBonus = Math.min(waitMs / (10 * 60 * 1000), 1) * 0.1;
+      const waitBonus = Math.min(waitMs / WAIT_BONUS_RAMP_MS, 1) * 0.1;
       const penalty = await recentMatchPenalty(anchor.userId, candidate.userId);
       const hybridScore = cosinePart + waitBonus - penalty;
 
@@ -249,12 +257,12 @@ export async function tryMatchAllPairs(): Promise<MatchResult[]> {
 
     const matched = candidates[bestMatch.memberIndex];
 
-    // Remove both from queue stores. Postgres first (source of truth).
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM match_queue_entries WHERE user_id IN ($1, $2)`,
-      anchor.userId,
-      matched.userId,
-    );
+    // Remove both from the Redis queue so no other pair can form with them.
+    // Their Postgres rows (which hold the embeddings) are kept so an expired
+    // or declined proposal can re-queue them by re-adding the Redis member
+    // alone; rows are deleted only when a conversation is created (accept)
+    // or a user leaves. A Postgres row without a Redis member can never be
+    // matched — candidates must map back to a current Redis member below.
     await redis.zrem(GLOBAL_QUEUE_KEY, members[anchorIdx], members[bestMatch.memberIndex]);
 
     consumed.add(anchor.userId);
@@ -287,10 +295,10 @@ export async function tryMatchAllPairs(): Promise<MatchResult[]> {
       createdAt: Date.now(),
     };
 
-    const PROPOSAL_TTL = 300;
-    await redis.set(`match:proposal:${proposalId}`, JSON.stringify(proposal), "EX", PROPOSAL_TTL);
-    await redis.set(`match:pending:${anchor.userId}`, proposalId, "EX", PROPOSAL_TTL);
-    await redis.set(`match:pending:${matched.userId}`, proposalId, "EX", PROPOSAL_TTL);
+    await redis.set(`match:proposal:${proposalId}`, JSON.stringify(proposal), "EX", PROPOSAL_KEY_TTL_SECONDS);
+    await redis.set(`match:pending:${anchor.userId}`, proposalId, "EX", PROPOSAL_KEY_TTL_SECONDS);
+    await redis.set(`match:pending:${matched.userId}`, proposalId, "EX", PROPOSAL_KEY_TTL_SECONDS);
+    await redis.zadd(PROPOSAL_EXPIRY_ZSET, Date.now() + PROPOSAL_TTL_SECONDS * 1000, proposalId);
 
     emitNotification({
       type: "match_proposed",
@@ -374,6 +382,8 @@ export async function acceptProposal(
   const raw = result.slice(8);
   const proposal = JSON.parse(raw);
 
+  await redis.zrem(PROPOSAL_EXPIRY_ZSET, proposalId);
+
   const matchContext = {
     userA: proposal.matchContextA,
     userB: proposal.matchContextB,
@@ -441,6 +451,7 @@ export async function declineProposal(
   await redis.del(`match:proposal:${proposalId}`);
   await redis.del(`match:pending:${proposal.userAId}`);
   await redis.del(`match:pending:${proposal.userBId}`);
+  await redis.zrem(PROPOSAL_EXPIRY_ZSET, proposalId);
 
   const decliningIsA = proposal.userAId === userId;
   const decliningUserId = decliningIsA ? proposal.userAId : proposal.userBId;
@@ -475,6 +486,84 @@ export async function declineProposal(
     payload: { proposalId },
     createdAt: new Date(),
   });
+}
+
+// --- Proposal expiry sweep ---
+
+/**
+ * Re-queue both users of any proposal whose 24h response deadline has passed
+ * without both sides accepting. Original joinedAt is preserved so accrued
+ * wait-bonus priority survives, and the pair is marked recently-matched so
+ * they are not immediately re-proposed to each other. Called from the
+ * worker's periodic cleanup.
+ */
+export async function expireStaleProposals(): Promise<number> {
+  const now = Date.now();
+  const dueIds = (await redis.zrangebyscore(PROPOSAL_EXPIRY_ZSET, 0, now)) as string[];
+  let expired = 0;
+
+  for (const proposalId of dueIds) {
+    await redis.zrem(PROPOSAL_EXPIRY_ZSET, proposalId);
+
+    const raw = await redis.get(`match:proposal:${proposalId}`);
+    if (!raw) continue; // already accepted/declined, or key TTL'd out
+    let proposal: Record<string, any>;
+    try {
+      proposal = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+
+    await redis.del(`match:proposal:${proposalId}`);
+    await redis.del(`match:pending:${proposal.userAId}`);
+    await redis.del(`match:pending:${proposal.userBId}`);
+
+    await markRecentlyMatched(proposal.userAId, proposal.userBId);
+
+    const sides = [
+      {
+        userId: proposal.userAId as string,
+        tier: (proposal.userATier as string) ?? "FREE",
+        category: (proposal.userACategory as string) ?? (proposal.category as string) ?? "ai-prompt",
+        joinedAt: (proposal.userAJoinedAt as number) ?? now,
+        matchContext: proposal.matchContextA as Record<string, unknown> | undefined,
+      },
+      {
+        userId: proposal.userBId as string,
+        tier: (proposal.userBTier as string) ?? "FREE",
+        category: (proposal.userBCategory as string) ?? (proposal.category as string) ?? "ai-prompt",
+        joinedAt: (proposal.userBJoinedAt as number) ?? now,
+        matchContext: proposal.matchContextB as Record<string, unknown> | undefined,
+      },
+    ];
+
+    for (const side of sides) {
+      try {
+        // Redis member only — the Postgres row (with embedding) was kept alive
+        // for the lifetime of the proposal, so this restores full matchability.
+        await joinQueue({
+          userId: side.userId,
+          tier: side.tier,
+          category: side.category,
+          subTag: (proposal.subTag as string) ?? undefined,
+          joinedAt: side.joinedAt,
+          matchContext: side.matchContext,
+        });
+      } catch (err) {
+        console.error(`[match] failed to re-queue ${side.userId} after proposal expiry:`, err);
+      }
+      emitNotification({
+        type: "match_expired",
+        recipientId: side.userId,
+        payload: { proposalId },
+        createdAt: new Date(),
+      });
+    }
+
+    expired++;
+  }
+
+  return expired;
 }
 
 // --- Stale entry cleanup + bidirectional reconciliation ---
@@ -542,14 +631,21 @@ export async function cleanupStaleEntries(): Promise<number> {
     }
   }
 
-  // Postgres-only orphans: drop from Postgres.
+  // Postgres-only orphans: drop from Postgres — except users in a pending
+  // proposal, whose rows are deliberately kept (Redis member removed, Postgres
+  // row alive) so an expired/declined proposal can restore them to the queue.
   const pgOnly = [...pgUserIds].filter((id) => !redisUserIds.has(id));
-  if (pgOnly.length > 0) {
+  const pgOrphans: string[] = [];
+  for (const id of pgOnly) {
+    const pending = await redis.get(`match:pending:${id}`);
+    if (!pending) pgOrphans.push(id);
+  }
+  if (pgOrphans.length > 0) {
     await prisma.$executeRawUnsafe(
       `DELETE FROM match_queue_entries WHERE user_id = ANY($1::text[])`,
-      pgOnly,
+      pgOrphans,
     );
-    removed += pgOnly.length;
+    removed += pgOrphans.length;
   }
 
   return removed;

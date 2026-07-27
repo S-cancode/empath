@@ -49,6 +49,14 @@ vi.mock("../lib/redis.js", () => ({
       }
       return removed;
     }),
+    zrangebyscore: vi.fn(async (key: string, min: number, max: number) => {
+      const sorted = store.get(key);
+      if (!sorted) return [];
+      return [...sorted.entries()]
+        .filter(([, s]) => s >= min && s <= max)
+        .sort((a, b) => a[1] - b[1])
+        .map(([m]) => m);
+    }),
     eval: vi.fn(),
     keys: vi.fn(async (pattern: string) => {
       const prefix = pattern.replace("*", "");
@@ -118,7 +126,12 @@ import {
   tryMatchAllPairs,
   getDailyMatchCount,
   getDailyMatchStatus,
+  declineProposal,
+  expireStaleProposals,
+  cleanupStaleEntries,
 } from "./matching.service.js";
+import { emitNotification } from "../notifications/notification.service.js";
+import { prisma } from "../lib/prisma.js";
 
 describe("matching.service", () => {
   beforeEach(() => {
@@ -235,5 +248,98 @@ describe("matching.service", () => {
     expect(results.length).toBe(2);
     const allUsers = new Set(results.flatMap((r) => [r.userAId, r.userBId]));
     expect(allUsers.size).toBe(4);
+  });
+
+  it("keeps Postgres queue rows when a proposal is created", async () => {
+    await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
+    await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.85 });
+
+    const result = await tryMatchGlobal();
+    expect(result).not.toBeNull();
+
+    const deleteCalls = vi
+      .mocked(prisma.$executeRawUnsafe)
+      .mock.calls.filter((c) => String(c[0]).includes("DELETE FROM match_queue_entries"));
+    expect(deleteCalls.length).toBe(0);
+  });
+
+  it("expired proposal re-queues both users and notifies them", async () => {
+    await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
+    await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.85 });
+
+    await tryMatchGlobal();
+    expect(await getQueueSize()).toBe(0);
+
+    // Force the proposal past its 24h deadline by rewinding its zset score.
+    const expiryZset = store.get("match:proposals:expiry")!;
+    for (const [member] of [...expiryZset.entries()]) {
+      expiryZset.set(member, Date.now() - 1000);
+    }
+
+    const expired = await expireStaleProposals();
+    expect(expired).toBe(1);
+    expect(await getQueueSize()).toBe(2);
+
+    const types = vi.mocked(emitNotification).mock.calls.map((c) => c[0].type);
+    expect(types.filter((t) => t === "match_expired").length).toBe(2);
+
+    // Second sweep is a no-op — the proposal was fully cleaned up.
+    expect(await expireStaleProposals()).toBe(0);
+  });
+
+  it("declined proposal is deregistered from expiry tracking", async () => {
+    await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
+    await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.85 });
+
+    const result = await tryMatchGlobal();
+    const proposalId = result!.conversationId;
+
+    await declineProposal(proposalId, "user-1");
+
+    // Other user re-queued by decline; decliner is out.
+    expect(await getQueueSize()).toBe(1);
+
+    // Even far past the deadline, nothing expires and nobody is notified.
+    const expiryZset = store.get("match:proposals:expiry");
+    if (expiryZset) {
+      for (const [member] of [...expiryZset.entries()]) {
+        expiryZset.set(member, Date.now() - 1000);
+      }
+    }
+    expect(await expireStaleProposals()).toBe(0);
+    const types = vi.mocked(emitNotification).mock.calls.map((c) => c[0].type);
+    expect(types.filter((t) => t === "match_expired").length).toBe(0);
+  });
+
+  it("cleanup keeps queue entries younger than 7 days", async () => {
+    // 31 minutes old — would have been evicted under the old 30-minute window.
+    await joinQueue({
+      userId: "user-1",
+      category: "grief",
+      tier: "free",
+      joinedAt: Date.now() - 31 * 60 * 1000,
+    });
+    // Reconciliation reads Postgres user_ids via $queryRawUnsafe (mocked with mockSimilarities).
+    mockSimilarities.push({ user_id: "user-1", similarity: 0 });
+
+    await cleanupStaleEntries();
+    expect(await getQueueSize()).toBe(1);
+  });
+
+  it("cleanup does not delete Postgres rows for users in a pending proposal", async () => {
+    // user-9 has a Postgres row but no Redis member — normally a purgeable orphan —
+    // and an active pending-proposal marker that must protect the row.
+    mockSimilarities.push({ user_id: "user-9", similarity: 0 });
+    strings.set("match:pending:user-9", "proposal:123");
+
+    await cleanupStaleEntries();
+
+    const orphanDeletes = vi
+      .mocked(prisma.$executeRawUnsafe)
+      .mock.calls.filter((c) => String(c[0]).includes("ANY($1::text[])"));
+    expect(orphanDeletes.length).toBe(0);
   });
 });

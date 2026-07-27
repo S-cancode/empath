@@ -63,6 +63,7 @@ const PUSH_TYPES = new Set([
   "match_proposed",
   "match_confirmed",
   "match_declined",
+  "match_expired",
   "live_session_invite",
 ]);
 
@@ -172,6 +173,15 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
         token,
         "Match Update",
         "Your match didn't go through — try again when you're ready",
+        { screen: "home", ...payload }
+      );
+      break;
+
+    case "match_expired":
+      await sendExpoPush(
+        token,
+        "Match Update",
+        "Your match request timed out — you're back in the queue and we're still looking",
         { screen: "home", ...payload }
       );
       break;

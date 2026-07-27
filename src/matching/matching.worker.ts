@@ -1,7 +1,7 @@
 import Redis from "ioredis";
 import { redis } from "../lib/redis.js";
 import { config } from "../config/index.js";
-import { tryMatchAllPairs, cleanupStaleEntries } from "./matching.service.js";
+import { tryMatchAllPairs, cleanupStaleEntries, expireStaleProposals } from "./matching.service.js";
 
 const FALLBACK_POLL_MS = 5000;
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
@@ -24,6 +24,8 @@ async function runTick(): Promise<void> {
     }
 
     if (Date.now() - lastCleanup > CLEANUP_INTERVAL) {
+      const expired = await expireStaleProposals();
+      if (expired > 0) console.log(`Expired ${expired} unanswered match proposals`);
       const cleaned = await cleanupStaleEntries();
       if (cleaned > 0) console.log(`Cleaned ${cleaned} stale queue entries`);
       lastCleanup = Date.now();
