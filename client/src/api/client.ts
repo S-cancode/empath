@@ -1,6 +1,7 @@
 import axios from "axios";
 import { useAuthStore } from "@/stores/auth.store";
 import { setTokens } from "@/lib/secure-storage";
+import { getDeviceId } from "@/lib/device-id";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
@@ -36,6 +37,21 @@ async function refreshAccessToken(): Promise<string> {
   return data.accessToken;
 }
 
+// Last-resort recovery for a dead refresh token (expired after 7 idle days or
+// invalidated server-side). Re-runs first-launch auth: /auth/anonymous looks
+// the account up by device ID, so this restores the SAME user with fresh
+// tokens instead of surfacing 401s on every request forever.
+async function reauthenticate(): Promise<string> {
+  const deviceId = await getDeviceId();
+  const { data } = await axios.post<{ accessToken: string; refreshToken: string }>(
+    `${API_URL}/auth/anonymous`,
+    { deviceId }
+  );
+  await setTokens(data.accessToken, data.refreshToken);
+  useAuthStore.getState().setTokens(data.accessToken, data.refreshToken);
+  return data.accessToken;
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -45,9 +61,20 @@ apiClient.interceptors.response.use(
 
       // Serialize concurrent refresh calls
       if (!refreshPromise) {
-        refreshPromise = refreshAccessToken().finally(() => {
-          refreshPromise = null;
-        });
+        refreshPromise = refreshAccessToken()
+          .catch(async () => {
+            try {
+              return await reauthenticate();
+            } catch (reauthErr) {
+              // Session is unrecoverable (e.g. offline). Clear the dead
+              // tokens so the root layout routes to splash for a clean start.
+              await useAuthStore.getState().logout().catch(() => undefined);
+              throw reauthErr;
+            }
+          })
+          .finally(() => {
+            refreshPromise = null;
+          });
       }
 
       const newToken = await refreshPromise;

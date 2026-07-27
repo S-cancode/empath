@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+# client/.env holds only the public EXPO_PUBLIC_API_URL and must be committed
+# so eas update publishes never fall back to localhost.
+!client/.env
 *.log
 .DS_Store
 coverage/
