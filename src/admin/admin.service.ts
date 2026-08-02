@@ -1,22 +1,23 @@
 import { prisma } from "../lib/prisma.js";
 import { decrypt } from "../lib/crypto.js";
+import { config } from "../config/index.js";
+import { applyBan, applySuspension, liftSuspension } from "../safety/enforcement.service.js";
+import { setRetentionHold } from "../conversation/conversation.service.js";
 import { NotFoundError, ValidationError } from "../shared/errors.js";
+
+// Escalations suspend the reported user for a fixed review window. If founders
+// never act, the suspension lapses rather than holding the user in limbo.
+const ESCALATION_REVIEW_DAYS = 7;
 
 const COMPLAINTS_EMAIL = "empath21@outlook.com";
 
-/** Send moderation notification to a user via push notification */
-async function notifyUser(userId: string, title: string, body: string): Promise<void> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { pushToken: true },
-  });
-  if (!user?.pushToken) return;
+async function sendExpoPush(pushToken: string, title: string, body: string): Promise<void> {
   try {
     await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
-        to: user.pushToken,
+        to: pushToken,
         title,
         body,
         data: { screen: "home", type: "moderation" },
@@ -26,6 +27,25 @@ async function notifyUser(userId: string, title: string, body: string): Promise<
   } catch (err) {
     console.error("[moderation] Failed to send notification:", err);
   }
+}
+
+/** Send moderation notification to a user via push notification */
+async function notifyUser(userId: string, title: string, body: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { pushToken: true },
+  });
+  if (!user?.pushToken) return;
+  await sendExpoPush(user.pushToken, title, body);
+}
+
+/** Alert the founders' devices (FOUNDER_PUSH_TOKENS, comma-separated). No-op if unset. */
+async function notifyFounders(title: string, body: string): Promise<void> {
+  const tokens = (config.FOUNDER_PUSH_TOKENS ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  await Promise.all(tokens.map((token) => sendExpoPush(token, title, body)));
 }
 
 const VALID_ACTIONS = ["dismiss", "warn", "suspend", "ban", "escalate"] as const;
@@ -68,7 +88,7 @@ export async function getReportDetail(reportId: string) {
     include: {
       reporter: { select: { id: true, anonymousAlias: true } },
       reported: { select: { id: true, anonymousAlias: true, banned: true, suspendedUntil: true } },
-      conversation: { select: { id: true, category: true, subTag: true, status: true } },
+      conversation: { select: { id: true, category: true, subTag: true, status: true, retentionHold: true } },
       moderationActions: { orderBy: { createdAt: "desc" as const } },
     },
   });
@@ -189,15 +209,26 @@ export async function takeAction(
     },
   });
 
-  // Update report status
-  await prisma.report.update({
-    where: { id: reportId },
-    data: {
-      status: "resolved",
-      reviewedAt: report.reviewedAt ?? new Date(),
-      resolvedAt: new Date(),
-    },
-  });
+  // Update report status. Escalations stay open in their own state until a
+  // founder resolves them; every other action closes the report.
+  if (input.action === "escalate") {
+    await prisma.report.update({
+      where: { id: reportId },
+      data: {
+        status: "escalated",
+        reviewedAt: report.reviewedAt ?? new Date(),
+      },
+    });
+  } else {
+    await prisma.report.update({
+      where: { id: reportId },
+      data: {
+        status: "resolved",
+        reviewedAt: report.reviewedAt ?? new Date(),
+        resolvedAt: new Date(),
+      },
+    });
+  }
 
   // Apply action to reported user and send notifications
   const reasonDesc = input.reason || "a violation of our Community Guidelines";
@@ -214,16 +245,13 @@ export async function takeAction(
     case "suspend": {
       const suspendUntil = new Date();
       suspendUntil.setDate(suspendUntil.getDate() + input.duration!);
-      await prisma.user.update({
-        where: { id: report.reportedId },
-        data: { suspendedUntil: suspendUntil },
-      });
       const liftDate = suspendUntil.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
       await notifyUser(
         report.reportedId,
         "Account Suspended",
         `Your account has been temporarily suspended for ${input.duration} day(s) due to ${reasonDesc}. Your suspension will be lifted on ${liftDate}. If you believe this is incorrect, contact ${COMPLAINTS_EMAIL}.`
       );
+      await applySuspension(report.reportedId, suspendUntil);
       break;
     }
     case "ban": {
@@ -232,21 +260,26 @@ export async function takeAction(
         "Account Permanently Removed",
         `Your account has been permanently removed due to serious violations of our Community Guidelines. If you believe this is incorrect, contact ${COMPLAINTS_EMAIL}.`
       );
-      await prisma.user.update({
-        where: { id: report.reportedId },
-        data: { banned: true },
-      });
-      // Block all active conversations
-      await prisma.conversation.updateMany({
-        where: {
-          status: { in: ["active", "archived"] },
-          OR: [
-            { userAId: report.reportedId },
-            { userBId: report.reportedId },
-          ],
-        },
-        data: { status: "blocked" },
-      });
+      await applyBan(report.reportedId);
+      break;
+    }
+    case "escalate": {
+      // Preserve the evidence first — the hold is one-way and survives resolution.
+      await setRetentionHold(report.conversationId);
+
+      const suspendUntil = new Date();
+      suspendUntil.setDate(suspendUntil.getDate() + ESCALATION_REVIEW_DAYS);
+      await notifyUser(
+        report.reportedId,
+        "Account Suspended Pending Review",
+        `Your account has been temporarily suspended while we review recent activity. If you believe this is incorrect, contact ${COMPLAINTS_EMAIL}.`
+      );
+      await applySuspension(report.reportedId, suspendUntil);
+
+      await notifyFounders(
+        "Report Escalated",
+        `Report ${reportId} (${report.reason}) needs founder review. The reported user is suspended for ${ESCALATION_REVIEW_DAYS} days pending review.`
+      );
       break;
     }
   }
@@ -261,15 +294,65 @@ export async function takeAction(
   return moderationAction;
 }
 
+/**
+ * Founder review of an escalated report. Records the outcome and optionally
+ * lifts the interim suspension. Deliberately never touches the conversation:
+ * the retention hold set at escalation time is one-way and survives resolution.
+ */
+export async function resolveEscalation(
+  reportId: string,
+  moderatorId: string,
+  outcome: string,
+  shouldLiftSuspension: boolean,
+) {
+  const report = await prisma.report.findUnique({ where: { id: reportId } });
+  if (!report) throw new NotFoundError("Report not found");
+  if (report.status !== "escalated") {
+    throw new ValidationError("Report is not escalated");
+  }
+
+  const moderationAction = await prisma.moderationAction.create({
+    data: {
+      reportId,
+      moderatorId,
+      action: "escalation_resolved",
+      reason: outcome,
+    },
+  });
+
+  const now = new Date();
+  await prisma.report.update({
+    where: { id: reportId },
+    data: {
+      status: "resolved",
+      resolvedAt: now,
+      escalationOutcome: outcome,
+      escalationResolvedAt: now,
+    },
+  });
+
+  if (shouldLiftSuspension) {
+    await liftSuspension(report.reportedId);
+    await notifyUser(
+      report.reportedId,
+      "Suspension Lifted",
+      "Following review, the temporary suspension on your account has been lifted. Thank you for your patience.",
+    );
+  }
+
+  return moderationAction;
+}
+
 export async function getDashboardStats() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [pendingCount, resolvedToday, totalReports] = await Promise.all([
+  const [pendingCount, escalatedCount, resolvedToday, totalReports] = await Promise.all([
     prisma.report.count({ where: { status: "pending" } }),
+    prisma.report.count({ where: { status: "escalated" } }),
     prisma.report.count({ where: { resolvedAt: { gte: today } } }),
     prisma.report.count(),
   ]);
 
-  return { pendingCount, resolvedToday, totalReports };
+  return { pendingCount, escalatedCount, resolvedToday, totalReports };
 }

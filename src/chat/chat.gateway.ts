@@ -8,6 +8,7 @@ import type { NotificationEvent } from "../notifications/notification.service.js
 import { setActiveConversation } from "../notifications/push.service.js";
 import { detectCrisis } from "../safety/crisis.detector.js";
 import { crisisResources } from "../safety/crisis.resources.js";
+import { recordCrisisEvent } from "../safety/crisis.service.js";
 import { acceptProposal, declineProposal } from "../matching/matching.service.js";
 import { redis } from "../lib/redis.js";
 import { getTierLimits } from "../config/tiers.js";
@@ -146,14 +147,12 @@ async function handleCrisisDetection(
   });
 
   try {
-    await prisma.crisisEvent.create({
-      data: {
-        userId,
-        conversationId,
-        liveSessionId: liveSessionId ?? null,
-        triggerKeywords: crisisResult.matchedKeywords,
-        resourcesShown: crisisResources.map((r) => r.name),
-      },
+    await recordCrisisEvent({
+      userId,
+      conversationId,
+      liveSessionId: liveSessionId ?? null,
+      triggerKeywords: crisisResult.matchedKeywords,
+      resourcesShown: crisisResources.map((r) => r.name),
     });
   } catch (err) {
     console.error("Failed to log crisis event:", err);
@@ -161,19 +160,42 @@ async function handleCrisisDetection(
 }
 
 export function setupChatGateway(io: Server): void {
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth.token as string;
     if (!token) {
       return next(new Error("Authentication required"));
     }
+    let payload;
     try {
-      const payload = verifyAccessToken(token);
-      socket.data.userId = payload.userId;
-      socket.data.tier = payload.tier;
-      next();
+      payload = verifyAccessToken(token);
     } catch {
-      next(new Error("Invalid token"));
+      return next(new Error("Invalid token"));
     }
+
+    // A banned/suspended user may still hold a valid access token, so the JWT
+    // check alone is not enough — mirror the REST authMiddleware ban check here.
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { banned: true, suspendedUntil: true },
+      });
+      if (user?.banned) {
+        return next(new Error("Your account has been permanently banned"));
+      }
+      if (user?.suspendedUntil && user.suspendedUntil > new Date()) {
+        return next(
+          new Error(
+            `Your account is suspended until ${user.suspendedUntil.toISOString().split("T")[0]}`,
+          ),
+        );
+      }
+    } catch {
+      return next(new Error("Authentication check failed"));
+    }
+
+    socket.data.userId = payload.userId;
+    socket.data.tier = payload.tier;
+    next();
   });
 
   io.on("connection", async (socket: Socket) => {

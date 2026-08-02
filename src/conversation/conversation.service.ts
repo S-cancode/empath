@@ -502,6 +502,8 @@ export async function autoArchiveStaleConversations(staleDays = 7): Promise<numb
  *   We approximate archive time by using the message's sentAt (no per-conversation archivedAt column).
  * - Async messages in active conversations are preserved (persistent async threads).
  * - Messages in conversations with pending/reviewing reports are never deleted.
+ * - Messages in conversations under a retention hold (escalations, crisis events)
+ *   are never deleted.
  */
 export async function deleteExpiredMessages(
   liveSessionRetentionDays = 7,
@@ -514,11 +516,20 @@ export async function deleteExpiredMessages(
   archivedCutoff.setDate(archivedCutoff.getDate() - archivedRetentionDays);
 
   const activeReports = await prisma.report.findMany({
-    where: { status: { in: ["pending", "reviewing"] } },
+    where: { status: { in: ["pending", "reviewing", "escalated"] } },
     select: { conversationId: true },
     distinct: ["conversationId" as const],
   });
-  const protectedIds = activeReports.map((r) => r.conversationId);
+  const heldConversations = await prisma.conversation.findMany({
+    where: { retentionHold: true },
+    select: { id: true },
+  });
+  const protectedIds = [
+    ...new Set([
+      ...activeReports.map((r) => r.conversationId),
+      ...heldConversations.map((c) => c.id),
+    ]),
+  ];
 
   // 1. Delete old live-session messages (not in a protected conversation).
   const liveWhere: Record<string, unknown> = {
@@ -552,4 +563,16 @@ export async function deleteExpiredMessages(
   }
 
   return liveResult.count + asyncCount;
+}
+
+/**
+ * One-way retention hold: preserves a conversation's messages indefinitely for
+ * moderation/safeguarding review. Deliberately no counterpart that clears the
+ * flag — resolving an escalation must not unfreeze the record.
+ */
+export async function setRetentionHold(conversationId: string): Promise<void> {
+  await prisma.conversation.updateMany({
+    where: { id: conversationId, retentionHold: false },
+    data: { retentionHold: true, retentionHoldAt: new Date() },
+  });
 }

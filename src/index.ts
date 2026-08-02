@@ -14,6 +14,7 @@ import { pushTokenRouter } from "./notifications/push-token.router.js";
 import { startPushListener } from "./notifications/push.service.js";
 import { safetyRouter } from "./safety/safety.router.js";
 import { setIoInstance } from "./safety/safety.service.js";
+import { startEnforcementSubscriber, stopEnforcementSubscriber } from "./safety/enforcement.service.js";
 import { complianceRouter } from "./compliance/compliance.router.js";
 import { adminRouter } from "./admin/admin.router.js";
 import { settingsRouter } from "./settings/settings.router.js";
@@ -100,6 +101,9 @@ startOutcomeWorker();
 startAutoArchiveWorker();
 startRetentionWorker();
 startPushListener();
+startEnforcementSubscriber().catch((err) => {
+  console.error("Failed to start enforcement subscriber:", err);
+});
 
 httpServer.listen(config.PORT, async () => {
   console.log(`Empath server running on port ${config.PORT}`);
@@ -121,6 +125,7 @@ async function shutdown(): Promise<void> {
   stopMessageBuffer();
   stopAutoArchiveWorker();
   stopRetentionWorker();
+  stopEnforcementSubscriber();
   await flushMessages(); // Persist any buffered live session messages before exit
   httpServer.close();
   await prisma.$disconnect();

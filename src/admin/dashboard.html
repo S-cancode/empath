@@ -24,6 +24,7 @@
   .badge-pending { background: #fff3cd; color: #856404; }
   .badge-resolved { background: #d4edda; color: #155724; }
   .badge-reviewed { background: #cce5ff; color: #004085; }
+  .badge-escalated { background: #e1bee7; color: #6a1b9a; }
   .badge-highest { background: #ffcdd2; color: #b71c1c; font-weight: 700; }
   .badge-standard { background: #e0e0e0; color: #555; }
 
@@ -79,6 +80,7 @@
   <h1>Empath Moderation</h1>
   <div class="stats">
     <div class="stat"><strong id="stat-pending">-</strong> Pending</div>
+    <div class="stat"><strong id="stat-escalated">-</strong> Escalated</div>
     <div class="stat"><strong id="stat-resolved">-</strong> Resolved Today</div>
     <div class="stat"><strong id="stat-total">-</strong> Total</div>
   </div>
@@ -88,6 +90,7 @@
   <div class="tabs">
     <button class="tab active" data-status="">All</button>
     <button class="tab" data-status="pending">Pending</button>
+    <button class="tab" data-status="escalated">Escalated</button>
     <button class="tab" data-status="resolved">Resolved</button>
   </div>
 
@@ -114,22 +117,43 @@
 
 <script>
 (function() {
-  const token = new URLSearchParams(location.search).get('secret') || '';
+  // Admin secret is kept in sessionStorage and sent as a Bearer header —
+  // never in the URL, so it stays out of server logs and browser history.
+  let token = sessionStorage.getItem('empath_admin_secret') || '';
   const baseUrl = location.pathname.replace(/\/$/, '');
   let currentStatus = '';
   let currentPage = 1;
 
+  function ensureToken() {
+    if (!token) {
+      const entered = prompt('Admin secret:');
+      if (!entered) return false;
+      token = entered.trim();
+      sessionStorage.setItem('empath_admin_secret', token);
+    }
+    return true;
+  }
+
   function api(path, opts = {}) {
-    const sep = path.includes('?') ? '&' : '?';
-    const url = baseUrl + path + sep + 'secret=' + encodeURIComponent(token);
-    return fetch(url, {
-      headers: { 'Content-Type': 'application/json' },
+    if (!ensureToken()) return Promise.resolve({});
+    return fetch(baseUrl + path, {
       ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+        ...(opts.headers || {}),
+      },
     }).then(r => {
-      if (!r.ok) console.error('API error:', r.status, url);
+      if (r.status === 401) {
+        sessionStorage.removeItem('empath_admin_secret');
+        token = '';
+        alert('Invalid admin secret. Reload the page to try again.');
+        return {};
+      }
+      if (!r.ok) console.error('API error:', r.status, path);
       return r.json();
     }).catch(err => {
-      console.error('Fetch error:', err, url);
+      console.error('Fetch error:', err, path);
       return {};
     });
   }
@@ -143,12 +167,14 @@
   function badgeClass(status) {
     if (status === 'pending') return 'badge-pending';
     if (status === 'resolved') return 'badge-resolved';
+    if (status === 'escalated') return 'badge-escalated';
     return 'badge-reviewed';
   }
 
   async function loadStats() {
     const s = await api('/stats');
     document.getElementById('stat-pending').textContent = s.pendingCount;
+    document.getElementById('stat-escalated').textContent = s.escalatedCount;
     document.getElementById('stat-resolved').textContent = s.resolvedToday;
     document.getElementById('stat-total').textContent = s.totalReports;
   }
@@ -216,6 +242,7 @@
       '<div class="info-item"><label>Reported</label>' + esc(r.reported.anonymousAlias) + '</div>' +
       '<div class="info-item"><label>Category</label>' + esc(r.reason) + '</div>' +
       '<div class="info-item"><label>Conversation</label>' + esc(r.conversation?.category || '-') + '</div>' +
+      '<div class="info-item"><label>Evidence</label>' + (r.conversation?.retentionHold ? '🔒 Retention hold (permanent)' : '—') + '</div>' +
       '</div>';
 
     if (r.details) {
@@ -268,6 +295,24 @@
         html += '<span class="time"> ' + formatDate(a.createdAt) + '</span></div>';
       });
       html += '</div></div>';
+    }
+
+    // Escalation outcome (resolved escalations)
+    if (r.escalationOutcome) {
+      html += '<div class="detail-section"><h3>Escalation Outcome</h3>' +
+        '<div class="reported-content" style="background:#f3e5f5;border-color:#e1bee7">' + esc(r.escalationOutcome) +
+        (r.escalationResolvedAt ? '<br><span class="time">Resolved ' + formatDate(r.escalationResolvedAt) + '</span>' : '') +
+        '</div></div>';
+    }
+
+    // Escalated reports get the founder resolution form
+    if (r.status === 'escalated') {
+      html += '<div class="detail-section"><h3>Resolve Escalation</h3>' +
+        '<p style="font-size:13px;color:#666">The reported user is under an interim suspension. Record the review outcome below. The retention hold on the conversation is permanent and is not affected by resolving.</p>' +
+        '<input type="text" class="reason-input" id="escalation-outcome" placeholder="Outcome of founder review (required)">' +
+        '<label style="display:block;margin-top:8px;font-size:14px"><input type="checkbox" id="lift-suspension"> Lift the interim suspension</label>' +
+        '<button class="action-btn" style="margin-top:12px;background:#1a73e8;color:#fff" onclick="window.__modResolveEscalation(\'' + r.id + '\')">Resolve Escalation</button>' +
+        '</div>';
     }
 
     // Action buttons (only if pending)
@@ -336,6 +381,21 @@
     await api('/reports/' + id + '/action', {
       method: 'POST',
       body: JSON.stringify({ action: 'suspend', reason, duration: days, moderatorId }),
+    });
+    window.__modClose();
+    loadReports();
+    loadStats();
+  };
+
+  window.__modResolveEscalation = async function(id) {
+    const outcome = document.getElementById('escalation-outcome').value.trim();
+    if (!outcome) { alert('Enter the review outcome'); return; }
+    const lift = document.getElementById('lift-suspension').checked;
+    if (!confirm('Resolve this escalation?' + (lift ? ' The interim suspension will be lifted.' : ' The suspension will run its course.'))) return;
+    const moderatorId = getModeratorId();
+    await api('/reports/' + id + '/escalation/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ outcome, liftSuspension: lift, moderatorId }),
     });
     window.__modClose();
     loadReports();

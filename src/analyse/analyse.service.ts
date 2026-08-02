@@ -135,7 +135,7 @@ export async function analyseText(request: AnalyseRequest): Promise<AnalyseResul
   // Step 1: GPT analysis (keywords + summary). These enrich the embedding input
   // so cosine similarity reflects emotional context, not surface lexical overlap.
   const chatResponse = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: config.OPENROUTER_MODEL,
     max_tokens: 512,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },

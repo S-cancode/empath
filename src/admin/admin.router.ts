@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { adminAuth } from "./admin.middleware.js";
-import { getReports, getReportDetail, takeAction, getDashboardStats } from "./admin.service.js";
+import { getReports, getReportDetail, takeAction, resolveEscalation, getDashboardStats } from "./admin.service.js";
 import { redis } from "../lib/redis.js";
 import { ValidationError } from "../shared/errors.js";
 import type { Request, Response, NextFunction } from "express";
@@ -18,13 +18,16 @@ const takeActionSchema = z.object({
 
 export const adminRouter = Router();
 
-adminRouter.use(adminAuth);
-
-// Serve dashboard HTML
+// The dashboard HTML shell is public: it contains no data, and a browser
+// navigation cannot send the Authorization header. The page prompts for the
+// admin secret and sends it as a Bearer token to the data endpoints below,
+// which all sit behind adminAuth.
 adminRouter.get("/", (_req: Request, res: Response) => {
   const html = readFileSync(join(__dirname, "dashboard.html"), "utf-8");
   res.type("html").send(html);
 });
+
+adminRouter.use(adminAuth);
 
 // List reports
 adminRouter.get("/reports", async (req: Request, res: Response) => {
@@ -51,6 +54,27 @@ adminRouter.post("/reports/:id/action", async (req: Request, res: Response, next
     }
     const { action, reason, duration, moderatorId, severity } = parsed.data;
     const result = await takeAction(req.params.id as string, moderatorId || "admin", { action, severity, reason, duration });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+const resolveEscalationSchema = z.object({
+  outcome: z.string().min(1).max(1000),
+  liftSuspension: z.boolean().optional().default(false),
+  moderatorId: z.string().min(1).optional(),
+});
+
+// Resolve an escalated report (founder review outcome)
+adminRouter.post("/reports/:id/escalation/resolve", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = resolveEscalationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues[0].message);
+    }
+    const { outcome, liftSuspension, moderatorId } = parsed.data;
+    const result = await resolveEscalation(req.params.id as string, moderatorId || "admin", outcome, liftSuspension);
     res.json(result);
   } catch (err) {
     next(err);

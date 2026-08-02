@@ -10,6 +10,10 @@ export function setIoInstance(io: Server): void {
   ioInstance = io;
 }
 
+export function getIoInstance(): Server | null {
+  return ioInstance;
+}
+
 const REPORT_REASONS = [
   "harassment",
   "self_harm_encouragement",
