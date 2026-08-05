@@ -37,6 +37,13 @@ Note: master prompt recorded 19 root vulns incl. 1 critical at the same SHA; cur
 ## Next exact action
 Wave 1 (Phase 1): fix the 8 client TS errors starting with typed push:active/push:inactive socket events (client/src/types/socket.ts + server contract), full Message type on optimistic sends, NotificationBehavior fields; then `npx expo install --check` for the 7 patch mismatches; then dependency audits.
 
+## Wave 1 — Technical health (completed 2026-08-05)
+- Client TypeScript: **8 → 0 errors.** `push:active`/`push:inactive` added to the typed ClientToServerEvents map (matching the existing server handlers — no casts); optimistic messages now constructed as full `Message` objects (`messageType: "text"`), removing the union casts in the chat render; `Alert.prompt` callbacks typed `(value?: string)`; NotificationBehavior gains `shouldShowBanner`/`shouldShowList` (both false — app suppresses foreground alerts by design).
+- Expo doctor: **7 patch mismatches → 18/18 checks pass** via `npx expo install --fix` (expo 54.0.36, expo-crypto 15.0.9, expo-file-system 19.0.23, expo-linking 8.0.12, expo-notifications 0.32.17, expo-router 6.0.24, expo-updates 29.0.19).
+- Dependency audits (prod): **root 14 (9 high) → 0**; **client 31 (2 critical, 11 high) → 15 (14 moderate, 1 high)** via `npm audit fix` (no --force, no majors).
+- **Accepted finding (documented per rule 7/Phase 1.7):** client `postcss` HIGH (XSS via unescaped `</style>`, GHSA chain via Expo toolchain). Reachability: build-time CSS tooling pulled by Expo's bundler chain; not exercised against untrusted CSS at runtime on device — app renders RN components, not remote CSS. Fix requires Expo SDK 57 major upgrade (`fixAvailable: expo@57`, semver-major) — out of scope mid-hardening. Compensating controls: no remote stylesheet ingestion; CSP-irrelevant native runtime. Owner: Shivan. Expiry: revisit at next Expo SDK upgrade or 2026-11-01, whichever first.
+- Regression after upgrades: backend tests + build pass, client tsc clean, iOS export pass.
+
 ## Phase plan (agreed with owner)
 Wave 0: baseline/truth/CI (this) → Wave 1: technical health (8 TS errors, Expo patches, dep vulns) → Wave 2: persistent identity (SIWA pending owner decision), canonical compliance, authorization matrix → Wave 3: pre-delivery moderation, directional blocks, crisis privacy, neutral push, voice removal → Wave 4: moderator accountability, privacy/retention truth, free-v1 sweep, structured matching → Wave 5: reviewer fixture, EAS artifact inspection, device QA/TestFlight/soak.
 

@@ -27,6 +27,10 @@ export interface ClientToServerEvents {
   "livesession:extend": (data: { liveSessionId: string }) => void;
   "livesession:end": (data: { liveSessionId: string }) => void;
   typing: (data: { conversationId?: string; liveSessionId?: string }) => void;
+  // Push suppression: tells the server which conversation is on screen so its
+  // pushes are muted (see server chat.gateway push:active/push:inactive).
+  "push:active": (data: { conversationId: string }) => void;
+  "push:inactive": () => void;
 }
 
 export interface ServerToClientEvents {

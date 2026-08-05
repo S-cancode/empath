@@ -129,13 +129,16 @@ export default function ChatScreen() {
         )
     );
     return [
-      ...optimistic.map((om) => ({
+      ...optimistic.map((om): Message => ({
         id: om.id,
         senderId: om.senderId,
         content: om.content,
         sentAt: om.sentAt,
         deliveryStatus: "sent" as const,
-      })),
+        // Optimistic sends are always plain text; declaring the full Message
+        // shape keeps the merged list a single Message[] type.
+        messageType: "text" as const,
+      } satisfies Message)),
       ...serverMessages,
     ].sort(
       (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
@@ -177,7 +180,7 @@ export default function ChatScreen() {
         },
         {
           text: "Save",
-          onPress: (value) => {
+          onPress: (value?: string) => {
             if (value?.trim()) setNickname(conversationId!, value.trim());
           },
         },
@@ -323,12 +326,12 @@ export default function ChatScreen() {
                     sentAt={item.sentAt}
                     isMine={item.senderId === userId}
                     deliveryStatus={item.deliveryStatus}
-                    messageType={item.messageType as "text" | "voice" | undefined}
+                    messageType={item.messageType}
                     voiceDurationMs={item.voiceDurationMs}
-                    waveform={item.waveform as number[] | undefined}
-                    originalContent={(item as Message).originalContent}
-                    translated={(item as Message).translated}
-                    sourceLanguage={(item as Message).sourceLanguage}
+                    waveform={item.waveform}
+                    originalContent={item.originalContent}
+                    translated={item.translated}
+                    sourceLanguage={item.sourceLanguage}
                     onLongPress={
                       item.senderId !== userId
                         ? () => {

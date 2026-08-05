@@ -98,7 +98,7 @@ export default function ProfileScreen() {
                 {
                   text: "Delete",
                   style: "destructive",
-                  onPress: async (value) => {
+                  onPress: async (value?: string) => {
                     if (value?.trim().toUpperCase() !== "DELETE") {
                       Alert.alert("Cancelled", 'You must type "DELETE" to confirm.');
                       return;
