@@ -1,10 +1,20 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Platform } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/theme/colors";
 import { getTranslationSettings, setTranslationSettings, TranslationSettings } from "@/api/settings.api";
+import { recordConsent } from "@/api/compliance.api";
+import { createHash } from "@/lib/hash";
+
+export const TRANSLATION_CONSENT_VERSION = "1.0";
+export const TRANSLATION_CONSENT_TEXT =
+  "Turning on auto-translate means every message you send and receive in your conversations " +
+  "will be sent to our AI provider, OpenAI (servers in the United States), to be translated, " +
+  "and the translated text will be cached in encrypted form on our systems for up to 24 hours. " +
+  "Your messages may include sensitive information about your health or emotional wellbeing. " +
+  "You can turn this off at any time in Settings.";
 
 const LANG_LABELS: Record<string, string> = {
   en: "English",
@@ -45,6 +55,40 @@ export default function TranslationSettingsScreen() {
     }
   }
 
+  async function logTranslationConsent(granted: boolean) {
+    try {
+      const textHash = await createHash(TRANSLATION_CONSENT_TEXT);
+      await recordConsent({
+        consentType: "translation",
+        version: TRANSLATION_CONSENT_VERSION,
+        granted,
+        textHash,
+        deviceType: Platform.OS,
+      });
+    } catch {
+      // Consent logging is best-effort; the setting itself is the gate.
+    }
+  }
+
+  function onToggleAutoTranslate(enabled: boolean) {
+    if (!enabled) {
+      void logTranslationConsent(false);
+      save({ autoTranslateEnabled: false });
+      return;
+    }
+    // Explicit consent before enabling: message content leaves the platform.
+    Alert.alert("Before you turn this on", TRANSLATION_CONSENT_TEXT, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "I agree — turn on",
+        onPress: () => {
+          void logTranslationConsent(true);
+          save({ autoTranslateEnabled: true });
+        },
+      },
+    ]);
+  }
+
   if (!settings) {
     return (
       <SafeAreaView style={s.container}>
@@ -66,14 +110,15 @@ export default function TranslationSettingsScreen() {
             <Text style={s.label}>Translate incoming messages</Text>
             <Switch
               value={settings.autoTranslateEnabled}
-              onValueChange={(v) => save({ autoTranslateEnabled: v })}
+              onValueChange={onToggleAutoTranslate}
               disabled={saving}
             />
           </View>
           <Text style={s.footnote}>
-            When on, incoming messages from people you talk with are translated into your
-            preferred language. Your outgoing messages are delivered in the language you
-            wrote them in and then translated into whatever language the recipient reads in.
+            Off by default. When on, messages in your conversations are sent to our AI
+            provider, OpenAI (US), for translation, and translated text is cached in
+            encrypted form for up to 24 hours. Both your incoming and outgoing messages
+            are translated. You can turn this off at any time.
           </Text>
         </View>
 

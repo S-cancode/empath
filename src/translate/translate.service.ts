@@ -2,33 +2,15 @@ import OpenAI from "openai";
 import { createHash } from "node:crypto";
 import { config } from "../config/index.js";
 import { redis } from "../lib/redis.js";
-import { prisma } from "../lib/prisma.js";
+import { encrypt, decrypt } from "../lib/crypto.js";
 
 const STUB_KEY = "sk-stub-placeholder-key";
-const CACHE_PREFIX = "translate:v1:";
-const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60;
-const INFER_LOCK_PREFIX = "translate:infer:";
-const INFER_LOCK_TTL_SECONDS = 60;
-const LANGUAGE_INFER_TTL_DAYS = 30;
-const INFER_MIN_SAMPLE_CHARS = 30;
-
-// Languages whose script is unambiguous. If detectLanguageHeuristic returns
-// one of these, we trust it over the LLM — it's cheap, deterministic, and
-// impossible to game with a pasted one-off message.
-const UNAMBIGUOUS_SCRIPT_LANGS = new Set(["ja", "ko", "zh", "ar", "hi", "ru"]);
-
-function heuristicScriptFamily(lang: string): "cjk" | "kana" | "hangul" | "arabic" | "devanagari" | "cyrillic" | "latin" | "und" {
-  switch (lang) {
-    case "ja": return "kana";
-    case "ko": return "hangul";
-    case "zh": return "cjk";
-    case "ar": return "arabic";
-    case "hi": return "devanagari";
-    case "ru": return "cyrillic";
-    case "en": case "es": case "fr": case "de": case "pt": case "it": return "latin";
-    default: return "und";
-  }
-}
+// v2: cached translations are AES-encrypted (same protection as the Message
+// table) and kept for 24h, not 7 days. v1 plaintext entries are purged at
+// startup by purgeLegacyTranslationCache().
+const CACHE_PREFIX = "translate:v2:";
+const LEGACY_CACHE_PREFIX = "translate:v1:";
+const CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 function isStubMode(): boolean {
   return !config.OPENAI_API_KEY || config.OPENAI_API_KEY === STUB_KEY;
@@ -109,7 +91,8 @@ async function readCache(key: string): Promise<TranslateResult | null> {
   try {
     const raw = await redis.get(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { sourceLang: string; translated: string };
+    const envelope = JSON.parse(raw) as { ciphertext: string; iv: string; authTag: string };
+    const parsed = JSON.parse(decrypt(envelope)) as { sourceLang: string; translated: string };
     return { ...parsed, fromCache: true };
   } catch {
     return null;
@@ -118,15 +101,43 @@ async function readCache(key: string): Promise<TranslateResult | null> {
 
 async function writeCache(key: string, value: TranslateResult): Promise<void> {
   try {
-    await redis.set(
-      key,
+    // Translated message content gets the same at-rest protection as the
+    // Message table — never plaintext in Redis.
+    const envelope = encrypt(
       JSON.stringify({ sourceLang: value.sourceLang, translated: value.translated }),
-      "EX",
-      CACHE_TTL_SECONDS,
     );
+    await redis.set(key, JSON.stringify(envelope), "EX", CACHE_TTL_SECONDS);
   } catch {
     // cache is best-effort
   }
+}
+
+/**
+ * One-shot startup sweep: delete all v1 (plaintext, 7-day) translation cache
+ * entries. They were an undisclosed second storage location for message
+ * content; v2 entries are encrypted with a 24h TTL.
+ */
+export async function purgeLegacyTranslationCache(): Promise<number> {
+  let cursor = "0";
+  let deleted = 0;
+  try {
+    do {
+      const [next, keys] = await redis.scan(
+        cursor,
+        "MATCH",
+        `${LEGACY_CACHE_PREFIX}*`,
+        "COUNT",
+        500,
+      );
+      cursor = next;
+      if (keys.length > 0) {
+        deleted += await redis.del(...keys);
+      }
+    } while (cursor !== "0");
+  } catch (err) {
+    console.error("[translate] legacy cache purge failed:", err);
+  }
+  return deleted;
 }
 
 interface TranslateOptions {
@@ -217,156 +228,6 @@ export async function translateText(
   }
 }
 
-export interface InferredLocale {
-  language: string | null;
-  dialect: string | null;
-}
-
-function normalizeDialect(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim().slice(0, 20);
-  if (!trimmed || trimmed === "und") return null;
-  // Prefer BCP-47 shape like "es-MX": lowercase language, uppercase region.
-  const match = trimmed.match(/^([a-zA-Z]{2,3})(?:[-_]([a-zA-Z]{2,4}))?$/);
-  if (!match) return trimmed;
-  const lang = match[1].toLowerCase();
-  const region = match[2]?.toUpperCase();
-  return region ? `${lang}-${region}` : lang;
-}
-
-async function callLocaleDetector(text: string): Promise<InferredLocale> {
-  if (isStubMode()) {
-    const lang = detectLanguageHeuristic(text);
-    return { language: lang === "und" ? null : lang, dialect: null };
-  }
-
-  const systemPrompt =
-    `You identify the language and regional dialect of short user-written messages. ` +
-    `Respond ONLY with valid JSON: {"language":"<ISO 639-1 code>","dialect":"<BCP-47 tag like en-GB, es-MX, pt-BR, or null if not discernible>"}. ` +
-    `If the text is too short or ambiguous to judge confidently, set language to null.`;
-
-  const client = getClient();
-  const response = await client.chat.completions.create({
-    model: config.OPENROUTER_MODEL,
-    max_tokens: 64,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: text.slice(0, 500) },
-    ],
-  });
-
-  const raw = response.choices[0]?.message?.content;
-  if (!raw) throw new Error("empty response");
-  const parsed = JSON.parse(raw) as { language?: string | null; dialect?: string | null };
-  return {
-    language: parsed.language ? parsed.language.toLowerCase().slice(0, 10) : null,
-    dialect: normalizeDialect(parsed.dialect),
-  };
-}
-
-/**
- * Infer the user's preferred language + dialect from a sample they wrote, and
- * persist it to their User row. Intended to be called fire-and-forget from
- * sendAsyncMessage so the first few messages bootstrap the user's locale
- * without any UI.
- *
- * - Short-circuits if the user already has a preferredLanguage that was
- *   detected within the last LANGUAGE_INFER_TTL_DAYS days.
- * - Uses a Redis debounce lock so concurrent sends don't stampede the LLM.
- * - Fail-open: any error swallows silently — the message was already delivered.
- */
-export async function inferUserLocaleFromText(
-  userId: string,
-  sampleText: string,
-): Promise<InferredLocale | null> {
-  const trimmed = sampleText?.trim() ?? "";
-  if (trimmed.length === 0) return null;
-
-  // Cheap up-front heuristic: if the message is in an unambiguous non-Latin
-  // script we trust that over the LLM regardless of sample length.
-  const heuristicLang = detectLanguageHeuristic(trimmed);
-  const heuristicIsUnambiguous = UNAMBIGUOUS_SCRIPT_LANGS.has(heuristicLang);
-
-  // Otherwise require a longer sample — short Latin-script messages mis-infer.
-  if (!heuristicIsUnambiguous && trimmed.length < INFER_MIN_SAMPLE_CHARS) return null;
-
-  // Acquire debounce lock — NX ensures only one caller per minute actually runs.
-  const lockKey = `${INFER_LOCK_PREFIX}${userId}`;
-  let gotLock = false;
-  try {
-    const res = await redis.set(lockKey, "1", "EX", INFER_LOCK_TTL_SECONDS, "NX");
-    gotLock = res === "OK";
-  } catch {
-    // If Redis is unavailable, fall through — we'd rather duplicate than drop.
-    gotLock = true;
-  }
-  if (!gotLock) return null;
-
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        preferredLanguage: true,
-        preferredDialect: true,
-        languageDetectedAt: true,
-      },
-    });
-    if (!user) return null;
-
-    // Script-mismatch self-correction: if the user has a stored preferred
-    // language but THIS message is in an unambiguous script that doesn't
-    // match it, invalidate the stored value and re-detect. Protects against
-    // a user being locked into a language they don't speak because they
-    // pasted one test message in it earlier.
-    if (
-      heuristicIsUnambiguous &&
-      user.preferredLanguage &&
-      heuristicScriptFamily(user.preferredLanguage) !== heuristicScriptFamily(heuristicLang)
-    ) {
-      user.preferredLanguage = null;
-      user.preferredDialect = null;
-      user.languageDetectedAt = null;
-    }
-
-    // If we already have a recently-detected language, skip.
-    const ttlMs = LANGUAGE_INFER_TTL_DAYS * 24 * 60 * 60 * 1000;
-    if (
-      user.preferredLanguage &&
-      user.languageDetectedAt &&
-      Date.now() - user.languageDetectedAt.getTime() < ttlMs
-    ) {
-      return {
-        language: user.preferredLanguage,
-        dialect: user.preferredDialect ?? null,
-      };
-    }
-
-    // Unambiguous-script path: trust the heuristic, skip the LLM entirely.
-    let detected: InferredLocale;
-    if (heuristicIsUnambiguous) {
-      detected = { language: heuristicLang, dialect: null };
-    } else {
-      detected = await callLocaleDetector(trimmed);
-    }
-    if (!detected.language) return null;
-
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        preferredLanguage: detected.language,
-        preferredDialect: detected.dialect,
-        languageDetectedAt: new Date(),
-      },
-    });
-
-    return detected;
-  } catch (err) {
-    console.error("inferUserLocaleFromText failed:", err);
-    return null;
-  }
-}
 
 /**
  * Translate many messages in parallel, reusing the same target/dialect.

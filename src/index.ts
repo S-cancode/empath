@@ -21,6 +21,7 @@ import { settingsRouter } from "./settings/settings.router.js";
 import { startAutoArchiveWorker, stopAutoArchiveWorker, startRetentionWorker, stopRetentionWorker } from "./conversation/conversation.worker.js";
 import { setupChatGateway } from "./chat/chat.gateway.js";
 import { startMessageBuffer, stopMessageBuffer, flushMessages } from "./chat/chat.service.js";
+import { purgeLegacyTranslationCache } from "./translate/translate.service.js";
 import { startMatchingWorker, stopMatchingWorker } from "./matching/matching.worker.js";
 import { startOutcomeWorker, stopOutcomeWorker } from "./matching/outcome.worker.js";
 import { prisma } from "./lib/prisma.js";
@@ -104,6 +105,10 @@ startPushListener();
 startEnforcementSubscriber().catch((err) => {
   console.error("Failed to start enforcement subscriber:", err);
 });
+// One-shot compliance sweep: remove plaintext v1 translation cache entries.
+purgeLegacyTranslationCache().then((n) => {
+  if (n > 0) console.log(`[translate] purged ${n} legacy cache entries`);
+}).catch(() => undefined);
 
 httpServer.listen(config.PORT, async () => {
   console.log(`Empath server running on port ${config.PORT}`);

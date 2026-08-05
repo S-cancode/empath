@@ -13,7 +13,6 @@ import { getQueueStatus } from "@/api/match.api";
 import { getConversations } from "@/api/conversations.api";
 import { MatchCounter } from "@/components/home/MatchCounter";
 import { PromptInput } from "@/components/home/PromptInput";
-import { UpgradePrompt } from "@/components/ui/UpgradePrompt";
 import { AppBackground } from "@/components/ui/AppBackground";
 
 export default function HomeScreen() {
@@ -28,7 +27,6 @@ export default function HomeScreen() {
   const leaveMatch = useLeaveMatch();
 
   const [promptText, setPromptText] = useState("");
-  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const setMatchProposal = useConversationsStore((s) => s.setMatchProposal);
 
@@ -71,7 +69,10 @@ export default function HomeScreen() {
 
   const handlePromptSubmit = () => {
     if (matchStatus && matchStatus.limit > 0 && matchStatus.remaining <= 0) {
-      setShowUpgrade(true);
+      Alert.alert(
+        "Daily match limit reached",
+        "You've used all of today's matches. Your matches reset at midnight — come back tomorrow.",
+      );
       return;
     }
 
@@ -173,12 +174,6 @@ export default function HomeScreen() {
         )}
       </ScrollView>
 
-      <UpgradePrompt
-        visible={showUpgrade}
-        requiredTier="premium"
-        featureName="More matches"
-        onDismiss={() => setShowUpgrade(false)}
-      />
     </SafeAreaView>
   );
 }

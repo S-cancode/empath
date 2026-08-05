@@ -58,7 +58,7 @@ export default function PrivacyNoticeScreen() {
         <Text style={styles.sectionTitle} accessibilityRole="header">4. Who We Share It With</Text>
         <Text style={styles.body}>
           {"\u2022"} Other users (your matched peer, in chat only){"\n"}
-          {"\u2022"} AI provider (receives a version of your text with identifying details removed, for matching and safety analysis){"\n"}
+          {"\u2022"} AI provider \u2014 OpenAI, servers in the United States (receives a version of your matching text with identifying details removed, for matching and safety analysis; and, only if you turn on auto-translate in Settings, the content of your chat messages for translation){"\n"}
           {"\u2022"} Hosting provider (for infrastructure){"\n"}
           {"\u2022"} Law enforcement (if legally compelled)
         </Text>
@@ -67,7 +67,8 @@ export default function PrivacyNoticeScreen() {
         <Text style={styles.body}>
           {"\u2022"} Free-text prompts: Deleted after matching (within minutes){"\n"}
           {"\u2022"} Anonymised matching data: Up to 180 days, then permanently deleted{"\n"}
-          {"\u2022"} Chat messages: Encrypted at rest; automatically deleted after 7 days; messages related to an active report are retained until the report is resolved; deleted immediately on account deletion{"\n"}
+          {"\u2022"} Chat messages: Encrypted at rest; automatically deleted after 7 days; messages related to an active report, or preserved for safeguarding or moderation review, are retained for as long as that purpose requires; deleted immediately on account deletion{"\n"}
+          {"\u2022"} Translated message text (auto-translate users only): Cached in encrypted form for up to 24 hours, then deleted{"\n"}
           {"\u2022"} Crisis signposting logs: 12 months, then deleted{"\n"}
           {"\u2022"} Account data: Retained until account deletion{"\n"}
           {"\u2022"} Device identifiers and IP addresses: Retained for the lifetime of the account; deleted within 30 days of account deletion{"\n"}

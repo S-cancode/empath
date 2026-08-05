@@ -44,10 +44,12 @@ export function useLocaleBootstrap() {
         const local = deviceLocale();
         if (!local.language) return;
 
+        // Seed language only. autoTranslateEnabled stays false (server
+        // default) — translation is opt-in via an explicit consent flow in
+        // Settings because it sends message content to the AI provider.
         await setTranslationSettings({
           preferredLanguage: local.language,
           preferredDialect: local.dialect,
-          autoTranslateEnabled: true,
         });
       } catch {
         // best-effort; silent failure is fine

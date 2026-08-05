@@ -132,32 +132,6 @@ describe("conversation.service", () => {
       await expect(sendAsyncMessage("conv-1", "user-3", "Hello!")).rejects.toThrow("Not a participant");
     });
 
-    it("triggers fire-and-forget locale inference for the sender", async () => {
-      const locked = new Map<string, string>();
-      // Hijack the mocked redis.set to observe the NX lock the translate service uses.
-      const redisMod = await import("../lib/redis.js");
-      (redisMod.redis.set as any).mockImplementationOnce(
-        async (key: string, _v: string, _ex: string, _ttl: number, nx: string) => {
-          if (nx === "NX" && locked.has(key)) return null;
-          locked.set(key, "1");
-          return "OK";
-        },
-      );
-
-      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
-        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
-      });
-      (mockPrisma.conversation.update as any).mockResolvedValue({});
-      (mockPrisma.message.create as any).mockImplementation(async (args: any) => ({
-        id: "msg-1", ...args.data, sentAt: new Date(),
-      }));
-
-      await sendAsyncMessage("conv-1", "user-1", "Hola amigo, espero que estés teniendo un buen día hoy en casa.");
-      // Inference is fire-and-forget; allow the microtask to flush.
-      await new Promise((r) => setTimeout(r, 0));
-      expect(Array.from(locked.keys()).some((k) => k.startsWith("translate:infer:user-1"))).toBe(true);
-    });
-
     it("tags detected source language on outgoing messages", async () => {
       (mockPrisma.conversation.findUnique as any).mockResolvedValue({
         id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
