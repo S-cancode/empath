@@ -14,6 +14,17 @@ export async function createAnonymousUser(
   return data;
 }
 
+export async function signInWithApple(
+  identityToken: string,
+  deviceId: string
+): Promise<AuthResponse> {
+  const { data } = await axios.post<AuthResponse>(`${API_URL}/auth/apple`, {
+    identityToken,
+    deviceId,
+  });
+  return data;
+}
+
 export async function refreshTokens(
   refreshToken: string
 ): Promise<TokenResponse> {

@@ -16,6 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.shivandongha.empath",
       "buildNumber": "13",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -37,6 +38,7 @@
       "expo-secure-store",
       "expo-notifications",
       "expo-updates",
+      "expo-apple-authentication",
       "@sentry/react-native",
       [
         "expo-av",
