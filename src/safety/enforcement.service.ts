@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { redis } from "../lib/redis.js";
 import { config } from "../config/index.js";
 import { getIoInstance } from "./safety.service.js";
+import { revokeUserSessions } from "../auth/auth.service.js";
 
 // disconnectSockets() only reaches sockets on the local instance (no Socket.IO
 // Redis adapter is installed), so enforcement broadcasts over Redis and every
@@ -41,6 +42,7 @@ export async function applyBan(userId: string): Promise<void> {
     },
     data: { status: "blocked" },
   });
+  await revokeUserSessions(userId);
   disconnectUserSockets(userId);
 }
 
@@ -53,6 +55,7 @@ export async function applySuspension(userId: string, until: Date): Promise<void
     where: { id: userId },
     data: { suspendedUntil: until },
   });
+  await revokeUserSessions(userId);
   disconnectUserSockets(userId);
 }
 

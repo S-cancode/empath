@@ -47,6 +47,10 @@ model User {
   id               String   @id @default(uuid())
   anonymousAlias   String   @map("anonymous_alias")
   deviceId         String   @map("device_id")
+  // Stable Apple user identifier (JWT `sub` from Sign in with Apple).
+  // The durable identity anchor: enforcement (bans, blocks, reports) must
+  // survive reinstalls, so it binds here, not to deviceId.
+  appleSub         String?  @unique @map("apple_sub")
   email            String?
   subscriptionTier String   @default("free") @map("subscription_tier")
   tokenVersion     Int      @default(0) @map("token_version")

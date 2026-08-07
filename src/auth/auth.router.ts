@@ -1,15 +1,34 @@
 import { Router } from "express";
 import { z } from "zod";
-import { createAnonymousUser, refreshTokens, upgradeWithEmail } from "./auth.service.js";
+import { createAnonymousUser, refreshTokens, upgradeWithEmail, isAnonymousAuthAllowed } from "./auth.service.js";
+import { signInWithApple } from "./apple.service.js";
 import { authMiddleware } from "./auth.middleware.js";
 import { authLimiter } from "../shared/rate-limiter.js";
-import { ValidationError } from "../shared/errors.js";
+import { ValidationError, ForbiddenError } from "../shared/errors.js";
 import { prisma } from "../lib/prisma.js";
 
 const router = Router();
 
 const anonymousSchema = z.object({
   deviceId: z.string().min(1).max(256),
+});
+
+const appleSchema = z.object({
+  identityToken: z.string().min(10),
+  deviceId: z.string().min(1).max(256),
+});
+
+router.post("/apple", authLimiter, async (req, res, next) => {
+  try {
+    const parsed = appleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError("Invalid Apple sign-in payload");
+    }
+    const result = await signInWithApple(parsed.data.identityToken, parsed.data.deviceId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 });
 
 const refreshSchema = z.object({
@@ -22,6 +41,11 @@ const upgradeSchema = z.object({
 
 router.post("/anonymous", authLimiter, async (req, res, next) => {
   try {
+    // Disposable identities defeat ban/report enforcement — production
+    // requires Sign in with Apple (see isAnonymousAuthAllowed).
+    if (!isAnonymousAuthAllowed()) {
+      throw new ForbiddenError("Anonymous sign-in is not available. Please use Sign in with Apple.");
+    }
     const parsed = anonymousSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError("Invalid device ID");

@@ -29,6 +29,11 @@ vi.mock("ioredis", () => ({
   },
 }));
 
+const mockRevokeUserSessions = vi.fn().mockResolvedValue(undefined);
+vi.mock("../auth/auth.service.js", () => ({
+  revokeUserSessions: (...args: unknown[]) => mockRevokeUserSessions(...args),
+}));
+
 const mockDisconnectSockets = vi.fn();
 const mockIo = {
   in: vi.fn().mockReturnValue({ disconnectSockets: mockDisconnectSockets }),
@@ -88,6 +93,15 @@ describe("enforcement.service", () => {
       expect(mockDisconnectSockets).toHaveBeenCalledWith(true);
       expect(mockRedis.publish).toHaveBeenCalledWith("moderation:disconnect", "user-1");
     });
+
+    it("revokes outstanding sessions so refresh tokens die with the ban", async () => {
+      (mockPrisma.user.update as any).mockResolvedValue({});
+      (mockPrisma.conversation.updateMany as any).mockResolvedValue({ count: 0 });
+
+      await applyBan("user-1");
+
+      expect(mockRevokeUserSessions).toHaveBeenCalledWith("user-1");
+    });
   });
 
   describe("applySuspension", () => {
@@ -104,6 +118,14 @@ describe("enforcement.service", () => {
       expect(mockIo.in).toHaveBeenCalledWith("user:user-2");
       expect(mockDisconnectSockets).toHaveBeenCalledWith(true);
       expect(mockRedis.publish).toHaveBeenCalledWith("moderation:disconnect", "user-2");
+    });
+
+    it("revokes outstanding sessions for the suspension window", async () => {
+      (mockPrisma.user.update as any).mockResolvedValue({});
+
+      await applySuspension("user-2", new Date(Date.now() + 86_400_000));
+
+      expect(mockRevokeUserSessions).toHaveBeenCalledWith("user-2");
     });
   });
 

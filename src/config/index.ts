@@ -17,6 +17,14 @@ const envSchema = z.object({
   OPENAI_BASE_URL: z.string().url().optional(),
   OPENROUTER_MODEL: z.string().default("gpt-4o-mini"),
   ADMIN_SECRET: z.string().min(6).optional(),
+  // Sign in with Apple: audience claim of Apple identity tokens.
+  APPLE_BUNDLE_ID: z.string().default("com.shivandongha.empath"),
+  // Disposable anonymous accounts defeat ban enforcement (Apple Guideline 1.2).
+  // Allowed only outside production (dev/tests/simulator flows).
+  ALLOW_ANONYMOUS_AUTH: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
   // Comma-separated Expo push tokens for founder escalation alerts
   FOUNDER_PUSH_TOKENS: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
