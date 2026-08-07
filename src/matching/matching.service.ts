@@ -92,6 +92,23 @@ export async function leaveQueue(userId: string, _category?: string): Promise<vo
   }
 }
 
+/**
+ * Remove a user from all matching state: queue entry plus any pending
+ * proposal (declining it re-queues the counterpart so they aren't stranded).
+ * Called by enforcement (ban/suspension), consent withdrawal, and deletion.
+ */
+export async function evictFromMatching(userId: string): Promise<void> {
+  try {
+    const proposalId = await redis.get(`match:pending:${userId}`);
+    if (proposalId) {
+      await declineProposal(proposalId, userId);
+    }
+  } catch (err) {
+    console.error("[matching] proposal eviction failed:", err);
+  }
+  await leaveQueue(userId);
+}
+
 export async function getQueueSize(): Promise<number> {
   return redis.zcard(GLOBAL_QUEUE_KEY);
 }

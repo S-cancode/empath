@@ -3,6 +3,10 @@ import { prisma } from "../lib/prisma.js";
 import { encrypt } from "../lib/crypto.js";
 import { createHash } from "node:crypto";
 import { ValidationError, NotFoundError } from "../shared/errors.js";
+import { revokeUserSessions } from "../auth/auth.service.js";
+import { disconnectUserSockets } from "../safety/enforcement.service.js";
+import { evictFromMatching } from "../matching/matching.service.js";
+import { invalidateComplianceCache } from "./compliance-gate.service.js";
 
 // --- Text versioning ---
 
@@ -181,6 +185,23 @@ export async function withdrawConsent(userId: string): Promise<void> {
       data: { withdrawnAt: new Date() },
     });
   }
+
+  // Withdrawal must take effect immediately, not at next request: kill
+  // sessions and sockets, leave the matching queue, cancel proposals.
+  await complianceRevocationCascade(userId);
+}
+
+/**
+ * Shared cascade for compliance-invalidating transitions (consent
+ * withdrawal, account deletion; enforcement runs its own equivalent).
+ * Order: sessions die, matching state goes, cache clears, sockets drop —
+ * so an already-open client is rejected on its next action.
+ */
+async function complianceRevocationCascade(userId: string): Promise<void> {
+  await revokeUserSessions(userId);
+  await evictFromMatching(userId);
+  invalidateComplianceCache(userId);
+  disconnectUserSockets(userId);
 }
 
 export async function hasValidConsent(userId: string): Promise<boolean> {
@@ -405,6 +426,7 @@ export async function deleteAccount(userId: string): Promise<void> {
         email: null,
         anonymousAlias: "deleted-user",
         deviceId: `deleted-${userId}`,
+        appleSub: null,
         pushToken: null,
         dateOfBirth: null,
         deletedAt: new Date(),
@@ -412,4 +434,6 @@ export async function deleteAccount(userId: string): Promise<void> {
       },
     });
   });
+
+  await complianceRevocationCascade(userId);
 }

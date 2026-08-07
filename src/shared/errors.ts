@@ -37,6 +37,17 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/**
+ * 403 with the compliance failure reason as the error code, so the client
+ * can route to the right remediation screen (age gate, terms, consent, …).
+ */
+export class ComplianceError extends AppError {
+  constructor(reason: string, message = "Account compliance requirements not met") {
+    super(message, 403, reason);
+    this.name = "ComplianceError";
+  }
+}
+
 export class UpgradeRequiredError extends AppError {
   public requiredTier: string;
 

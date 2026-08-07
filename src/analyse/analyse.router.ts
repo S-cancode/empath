@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { analyseText } from "./analyse.service.js";
-import { authMiddleware } from "../auth/auth.middleware.js";
+import { authMiddleware, requireCompliance } from "../auth/auth.middleware.js";
 import { apiLimiter } from "../shared/rate-limiter.js";
 import { ValidationError } from "../shared/errors.js";
 import { getDailyMatchStatus } from "../matching/matching.service.js";
@@ -19,7 +19,9 @@ const analyseSchema = z.object({
     .max(500, "Text must be 500 characters or less"),
 });
 
-router.post("/", apiLimiter, authMiddleware, async (req, res, next) => {
+// requireCompliance MUST precede the handler: user text goes to the AI
+// provider and into Redis here, which needs age + terms + consent first.
+router.post("/", apiLimiter, authMiddleware, requireCompliance, async (req, res, next) => {
   try {
     const parsed = analyseSchema.safeParse(req.body);
     if (!parsed.success) {

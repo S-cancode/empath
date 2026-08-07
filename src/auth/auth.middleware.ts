@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "./auth.service.js";
 import { prisma } from "../lib/prisma.js";
-import { AuthError, ForbiddenError, UpgradeRequiredError } from "../shared/errors.js";
+import { AuthError, ForbiddenError, UpgradeRequiredError, ComplianceError } from "../shared/errors.js";
+import { checkUserCompliance } from "../compliance/compliance-gate.service.js";
 import { SubscriptionTier, type JwtPayload } from "../shared/types.js";
 
 declare global {
@@ -100,16 +101,9 @@ export function requireTier(minimumTier: SubscriptionTier) {
 export async function requireCompliance(req: Request, _res: Response, next: NextFunction): Promise<void> {
   if (!req.user) throw new AuthError("Authentication required");
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.user.userId },
-    select: { ageConfirmedAt: true, sensitiveDataConsent: true },
-  });
-
-  if (!user?.ageConfirmedAt) {
-    throw new ForbiddenError("Age verification required");
-  }
-  if (!user.sensitiveDataConsent) {
-    throw new ForbiddenError("Sensitive data consent required");
+  const result = await checkUserCompliance(req.user.userId);
+  if (!result.ok) {
+    throw new ComplianceError(result.reason ?? "check_failed");
   }
 
   next();

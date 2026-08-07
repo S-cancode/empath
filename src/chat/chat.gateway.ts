@@ -9,6 +9,7 @@ import { setActiveConversation } from "../notifications/push.service.js";
 import { detectCrisis } from "../safety/crisis.detector.js";
 import { crisisResources } from "../safety/crisis.resources.js";
 import { recordCrisisEvent } from "../safety/crisis.service.js";
+import { checkUserCompliance, checkUserComplianceCached } from "../compliance/compliance-gate.service.js";
 import { acceptProposal, declineProposal } from "../matching/matching.service.js";
 import { redis } from "../lib/redis.js";
 import { getTierLimits } from "../config/tiers.js";
@@ -159,6 +160,21 @@ async function handleCrisisDetection(
   }
 }
 
+/**
+ * Per-event compliance guard for content-producing socket events. Uses the
+ * short-TTL cached check; enforcement/withdrawal invalidate that cache and
+ * disconnect sockets, so this is a second lock on the same door.
+ */
+async function socketCompliant(socket: Socket, userId: string): Promise<boolean> {
+  const result = await checkUserComplianceCached(userId);
+  if (!result.ok) {
+    socket.emit("error", { message: "Account compliance required" });
+    socket.disconnect(true);
+    return false;
+  }
+  return true;
+}
+
 export function setupChatGateway(io: Server): void {
   io.use(async (socket, next) => {
     const token = socket.handshake.auth.token as string;
@@ -172,25 +188,25 @@ export function setupChatGateway(io: Server): void {
       return next(new Error("Invalid token"));
     }
 
-    // A banned/suspended user may still hold a valid access token, so the JWT
-    // check alone is not enough — mirror the REST authMiddleware ban check here.
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
-        select: { banned: true, suspendedUntil: true },
-      });
-      if (user?.banned) {
+    // A valid JWT is not enough: the account must also satisfy the canonical
+    // compliance gate (not deleted/banned/suspended, 18+, current terms and
+    // sensitive-data consent). Fail closed on any doubt.
+    const compliance = await checkUserCompliance(payload.userId);
+    if (!compliance.ok) {
+      if (compliance.reason === "banned") {
         return next(new Error("Your account has been permanently banned"));
       }
-      if (user?.suspendedUntil && user.suspendedUntil > new Date()) {
+      if (compliance.reason === "suspended" && compliance.suspendedUntil) {
         return next(
           new Error(
-            `Your account is suspended until ${user.suspendedUntil.toISOString().split("T")[0]}`,
+            `Your account is suspended until ${compliance.suspendedUntil.toISOString().split("T")[0]}`,
           ),
         );
       }
-    } catch {
-      return next(new Error("Authentication check failed"));
+      if (compliance.reason === "check_failed") {
+        return next(new Error("Authentication check failed"));
+      }
+      return next(new Error(`compliance_required:${compliance.reason}`));
     }
 
     socket.data.userId = payload.userId;
@@ -283,6 +299,7 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("conversation:message", async (data: { conversationId: string; content: string }) => {
+      if (!(await socketCompliant(socket, userId))) return;
       if (!data.content || data.content.length > 5000) {
         socket.emit("error", { message: "Message must be between 1 and 5000 characters" });
         return;
@@ -349,6 +366,7 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("conversation:voice-note", async (data: { conversationId: string; audio: string; durationMs: number; waveform?: number[] }) => {
+      if (!(await socketCompliant(socket, userId))) return;
       // NOTE: crisis detection is keyword-based and runs on text only. Voice notes
       // are not transcribed server-side, so they bypass detection. Safety relies on
       // the recipient reporting flow for voice content. If server-side transcription
@@ -494,6 +512,7 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("livesession:message", async (data: { liveSessionId: string; conversationId: string; content: string }) => {
+      if (!(await socketCompliant(socket, userId))) return;
       if (!data.content || data.content.length > 5000) {
         socket.emit("error", { message: "Message must be between 1 and 5000 characters" });
         return;
@@ -579,6 +598,7 @@ export function setupChatGateway(io: Server): void {
     // --- Match proposal accept/decline ---
 
     socket.on("match:accept", async (data: { proposalId: string }) => {
+      if (!(await socketCompliant(socket, userId))) return;
       try {
         await acceptProposal(data.proposalId, userId);
         // match:confirmed is emitted to both users via the notification bus listener below
