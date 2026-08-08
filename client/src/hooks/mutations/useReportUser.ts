@@ -8,6 +8,7 @@ export function useReportUser() {
       reportedUserId: string;
       reason: string;
       details?: string;
+      reportedMessageId?: string;
     }) => reportUser(payload),
   });
 }

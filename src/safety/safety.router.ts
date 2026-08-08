@@ -13,6 +13,7 @@ const reportSchema = z.object({
   reportedUserId: z.string().uuid(),
   reason: z.enum(["harassment", "self_harm_encouragement", "sexual_content", "spam_scam", "medical_advice", "illegal_content", "underage_user", "other"]),
   details: z.string().max(500).optional(),
+  reportedMessageId: z.string().uuid().optional(),
 });
 
 router.post("/report", async (req, res, next) => {
@@ -21,13 +22,14 @@ router.post("/report", async (req, res, next) => {
     if (!parsed.success) {
       throw new ValidationError("Invalid report payload");
     }
-    const { conversationId, reportedUserId, reason, details } = parsed.data;
+    const { conversationId, reportedUserId, reason, details, reportedMessageId } = parsed.data;
     const result = await reportUser(
       req.user!.userId,
       conversationId,
       reportedUserId,
       reason,
       details,
+      reportedMessageId,
     );
     res.status(201).json(result);
   } catch (err) {

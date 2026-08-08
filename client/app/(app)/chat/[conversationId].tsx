@@ -77,6 +77,7 @@ export default function ChatScreen() {
   const reportMutation = useReportUser();
   const blockMutation = useBlockUser();
   const [reportVisible, setReportVisible] = useState(false);
+  const [reportedMessageId, setReportedMessageId] = useState<string | null>(null);
   const clearUnread = useConversationsStore((s) => s.clearUnread);
   const setActiveConversation = useConversationsStore((s) => s.setActiveConversation);
   const optimisticMessages = useConversationsStore(
@@ -192,7 +193,7 @@ export default function ChatScreen() {
 
   const showActionSheet = () => {
     Alert.alert(displayName, undefined, [
-      { text: "Report User", onPress: () => setReportVisible(true) },
+      { text: "Report User", onPress: () => { setReportedMessageId(null); setReportVisible(true); } },
       {
         text: "Block User",
         style: "destructive",
@@ -210,10 +211,14 @@ export default function ChatScreen() {
         reportedUserId: conversation.partner.id,
         reason,
         details,
+        // Present when the report was started from a specific message
+        // (text or voice); lets moderators inspect the exact item.
+        reportedMessageId: reportedMessageId ?? undefined,
       },
       {
         onSuccess: () => {
           setReportVisible(false);
+          setReportedMessageId(null);
           Alert.alert(
             "Report Submitted",
             "Thank you. We have received your report and will review it within 24 hours. You will not be matched with this user again."
@@ -339,7 +344,7 @@ export default function ChatScreen() {
                               "Message Options",
                               undefined,
                               [
-                                { text: "Report This Message", onPress: () => setReportVisible(true) },
+                                { text: "Report This Message", onPress: () => { setReportedMessageId(item.id); setReportVisible(true); } },
                                 { text: "Cancel", style: "cancel" },
                               ]
                             );

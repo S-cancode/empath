@@ -290,8 +290,11 @@
       data.messages.forEach(m => {
         const isReported = m.senderId === r.reportedId;
         if (m.messageType === 'voice') {
+          const playBtn = m.id
+            ? '<button class="action-btn" style="margin-left:8px;background:#e3f2fd;color:#1565c0" onclick="window.__playVoice(\'' + r.id + '\',\'' + m.id + '\',this)">▶ Play (audited)</button>'
+            : '';
           html += '<div class="msg"><span class="sender" style="' + (isReported ? 'color:#c62828' : '') + '">' +
-            esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br><span class="voice-tag">[Voice note]</span></div>';
+            esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br><span class="voice-tag">[Voice note]</span>' + playBtn + '</div>';
         } else {
           html += '<div class="msg"><span class="sender" style="' + (isReported ? 'color:#c62828' : '') + '">' +
             esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br>' + esc(m.content) + '</div>';
@@ -389,6 +392,32 @@
     window.__modClose();
     loadReports();
     loadStats();
+  };
+
+  // Play a reported voice note. Fetches decrypted audio with the moderator
+  // session (Bearer), plays it from an in-memory blob URL, and revokes the URL
+  // after. The access is audited server-side. No public/persistent URL.
+  window.__playVoice = async function(reportId, messageId, btn) {
+    if (!(await ensureToken())) return;
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+    try {
+      const r = await fetch(baseUrl + '/reports/' + reportId + '/voice/' + messageId, {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (!r.ok) { alert('Could not load audio (' + r.status + ').'); btn.textContent = '▶ Play (audited)'; btn.disabled = false; return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play();
+      btn.textContent = '▶ Play (audited)';
+      btn.disabled = false;
+    } catch (err) {
+      alert('Playback failed.');
+      btn.textContent = '▶ Play (audited)';
+      btn.disabled = false;
+    }
   };
 
   window.__modResolveEscalation = async function(id) {

@@ -31,6 +31,7 @@ export async function reportUser(
   reportedId: string,
   reason: string,
   details?: string,
+  reportedMessageId?: string,
 ): Promise<{ id: string }> {
   if (!REPORT_REASONS.includes(reason as (typeof REPORT_REASONS)[number])) {
     throw new ValidationError("Invalid report reason");
@@ -48,6 +49,18 @@ export async function reportUser(
     conversation.userAId === reporterId ? conversation.userBId : conversation.userAId;
   if (reportedId !== partnerId) {
     throw new ValidationError("Reported user is not your conversation partner");
+  }
+
+  // Exact-message report: the target message must belong to THIS conversation
+  // and be authored by the reported user — never another conversation or sender.
+  if (reportedMessageId) {
+    const target = await prisma.message.findUnique({
+      where: { id: reportedMessageId },
+      select: { conversationId: true, senderId: true },
+    });
+    if (!target || target.conversationId !== conversationId || target.senderId !== reportedId) {
+      throw new ValidationError("Reported message does not belong to this conversation partner");
+    }
   }
 
   // Capture full conversation log for moderation review.
@@ -117,6 +130,7 @@ export async function reportUser(
     data: {
       conversationId, reporterId, reportedId, reason, details,
       priority,
+      ...(reportedMessageId ? { reportedMessageId } : {}),
       ...(conversationLog
         ? { conversationLog: conversationLog as unknown as Prisma.InputJsonValue }
         : {}),

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { moderatorAuth } from "./admin.middleware.js";
 import { moderatorLogin, auditModeratorAction } from "./moderator.service.js";
-import { getReports, getReportDetail, takeAction, resolveEscalation, getDashboardStats } from "./admin.service.js";
+import { getReports, getReportDetail, takeAction, resolveEscalation, getDashboardStats, getReportedVoiceAudio } from "./admin.service.js";
 import { redis } from "../lib/redis.js";
 import { authLimiter } from "../shared/rate-limiter.js";
 import { ValidationError } from "../shared/errors.js";
@@ -111,6 +111,26 @@ adminRouter.post("/reports/:id/escalation/resolve", async (req: Request, res: Re
       ip: req.ip,
     });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Secure moderator playback of a reported voice note. Audio is decrypted on
+// demand, never cached, never in list JSON, and the access is audited.
+adminRouter.get("/reports/:id/voice/:messageId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id, messageId } = req.params as { id: string; messageId: string };
+    const { base64Audio } = await getReportedVoiceAudio(id, messageId);
+    await auditModeratorAction(req.moderator!.moderatorId, "play_reported_voice", {
+      targetType: "message",
+      targetId: messageId,
+      detail: `report:${id}`,
+      ip: req.ip,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Type", "audio/mp4");
+    res.send(Buffer.from(base64Audio, "base64"));
   } catch (err) {
     next(err);
   }

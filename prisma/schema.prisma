@@ -161,6 +161,7 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id])
   sender       User         @relation(fields: [senderId], references: [id])
   liveSession  LiveSession? @relation(fields: [liveSessionId], references: [id])
+  reports      Report[]     @relation("ReportedMessage")
 
   @@index([conversationId])
   @@index([conversationId, sentAt])
@@ -191,6 +192,7 @@ model Report {
   reportedId     String   @map("reported_id")
   reason                 String
   details                String?
+  reportedMessageId      String?  @map("reported_message_id")
   reportedMessageContent String?  @map("reported_message_content")
   conversationLog        Json?    @map("conversation_log")
   priority               String   @default("standard") // "highest" or "standard"
@@ -204,10 +206,12 @@ model Report {
   conversation      Conversation       @relation(fields: [conversationId], references: [id])
   reporter          User               @relation("ReportsSubmitted", fields: [reporterId], references: [id])
   reported          User               @relation("ReportsReceived", fields: [reportedId], references: [id])
+  reportedMessage   Message?           @relation("ReportedMessage", fields: [reportedMessageId], references: [id])
   moderationActions ModerationAction[]
 
   @@index([reportedId])
   @@index([status])
+  @@index([reportedMessageId])
   @@map("reports")
 }
 

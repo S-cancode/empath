@@ -3,7 +3,7 @@ import { decrypt } from "../lib/crypto.js";
 import { config } from "../config/index.js";
 import { applyBan, applySuspension, liftSuspension } from "../safety/enforcement.service.js";
 import { setRetentionHold } from "../conversation/conversation.service.js";
-import { NotFoundError, ValidationError } from "../shared/errors.js";
+import { NotFoundError, ValidationError, ForbiddenError } from "../shared/errors.js";
 
 // Escalations suspend the reported user for a fixed review window. If founders
 // never act, the suspension lapses rather than holding the user in limbo.
@@ -341,6 +341,45 @@ export async function resolveEscalation(
   }
 
   return moderationAction;
+}
+
+/**
+ * Decrypt the exact reported voice note for moderator playback. Enforces that
+ * the message is the one attached to the report (or at least belongs to the
+ * report's conversation AND reported sender) — unreported audio is never
+ * generally browsable. Returns raw base64 audio; the caller sets no-store and
+ * audits the access. Never logs audio content.
+ */
+export async function getReportedVoiceAudio(
+  reportId: string,
+  messageId: string,
+): Promise<{ base64Audio: string }> {
+  const report = await prisma.report.findUnique({
+    where: { id: reportId },
+    select: { conversationId: true, reportedId: true, reportedMessageId: true },
+  });
+  if (!report) throw new NotFoundError("Report not found");
+
+  const message = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: { conversationId: true, senderId: true, messageType: true, content: true, iv: true, authTag: true },
+  });
+  if (!message || message.messageType !== "voice") {
+    throw new NotFoundError("Voice message not found");
+  }
+
+  // The message must be tied to this report: either the explicit
+  // reportedMessageId, or (fallback) belong to the report's conversation and
+  // the reported sender. Anything else is refused.
+  const isExactReported = report.reportedMessageId === messageId;
+  const belongsToReport =
+    message.conversationId === report.conversationId && message.senderId === report.reportedId;
+  if (!isExactReported && !belongsToReport) {
+    throw new ForbiddenError("This message is not part of the report");
+  }
+
+  const base64Audio = decrypt({ ciphertext: message.content, iv: message.iv, authTag: message.authTag });
+  return { base64Audio };
 }
 
 export async function getDashboardStats() {

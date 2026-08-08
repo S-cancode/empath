@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from "react";
-import { View, TouchableOpacity, Text, StyleSheet, Dimensions } from "react-native";
+import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Pressable } from "react-native";
 import { Audio } from "expo-av";
 import { File, Paths } from "expo-file-system";
 import Svg, { Path, Rect } from "react-native-svg";
@@ -29,6 +29,7 @@ interface VoiceMessageBubbleProps {
   sentAt: string;
   deliveryStatus?: string;
   waveform?: number[];
+  onLongPress?: () => void;
 }
 
 function formatDuration(ms: number): string {
@@ -52,6 +53,7 @@ export function VoiceMessageBubble({
   sentAt,
   deliveryStatus,
   waveform,
+  onLongPress,
 }: VoiceMessageBubbleProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -161,7 +163,11 @@ export function VoiceMessageBubble({
   }, [waveform, barCount]);
 
   return (
-    <View style={[styles.wrapper, isMine && styles.wrapperMine, { width: bubbleWidth }]}>
+    <Pressable
+      style={[styles.wrapper, isMine && styles.wrapperMine, { width: bubbleWidth }]}
+      onLongPress={onLongPress}
+      delayLongPress={500}
+    >
       <View style={[styles.bubble, isMine ? styles.mine : styles.theirs]}>
         <View style={styles.row}>
           <TouchableOpacity onPress={handlePlay} style={styles.playButton}>
@@ -206,7 +212,7 @@ export function VoiceMessageBubble({
           </Text>
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 

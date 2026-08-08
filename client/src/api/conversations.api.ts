@@ -73,6 +73,7 @@ export async function reportUser(payload: {
   reportedUserId: string;
   reason: string;
   details?: string;
+  reportedMessageId?: string;
 }): Promise<{ id: string }> {
   const { data } = await apiClient.post<{ id: string }>(
     "/safety/report",
