@@ -195,6 +195,33 @@ export async function blockUser(
   }
 }
 
+/**
+ * Remove ONLY the caller's own block of the other user. A block is
+ * directional: unblocking must never delete or neutralize the block the other
+ * person placed on the caller. A shared conversation is reactivated only if
+ * NEITHER direction (user- or device-level) blocks the pair any longer.
+ */
+export async function unblockUser(userId: string, blockedUserId: string): Promise<void> {
+  await prisma.blockedUser.deleteMany({
+    where: { userId, blockedUserId },
+  });
+
+  // Reactivate the shared conversation only if no block remains in either
+  // direction (isBlocked checks both user-level and device-level).
+  if (await isBlocked(userId, blockedUserId)) return;
+
+  await prisma.conversation.updateMany({
+    where: {
+      status: "blocked",
+      OR: [
+        { userAId: userId, userBId: blockedUserId },
+        { userAId: blockedUserId, userBId: userId },
+      ],
+    },
+    data: { status: "archived" },
+  });
+}
+
 export async function isBlocked(
   userAId: string,
   userBId: string,

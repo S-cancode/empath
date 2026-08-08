@@ -321,6 +321,8 @@ export async function sendAsyncMessage(
 
   // Notify recipient
   const recipientOnline = await isOnline(recipientId);
+  // Never put message plaintext on the notification bus — push builds neutral
+  // copy and the socket path carries content over the authenticated channel.
   emitNotification({
     type: "new_message",
     recipientId,
@@ -328,7 +330,6 @@ export async function sendAsyncMessage(
       conversationId,
       messageId: message.id,
       senderId,
-      messageContent: plaintext,
       messageType: "text",
       online: recipientOnline,
     },

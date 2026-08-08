@@ -76,7 +76,7 @@ export function startPushListener(): void {
   });
 }
 
-async function handlePushNotification(event: NotificationEvent): Promise<void> {
+export async function handlePushNotification(event: NotificationEvent): Promise<void> {
   const { type, recipientId, payload } = event;
 
   if (!PUSH_TYPES.has(type)) return;
@@ -100,7 +100,8 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
     return;
   }
 
-  console.log(`[push] Sending ${type} push to token ${token.slice(0, 25)}...`);
+  // token intentionally not logged (PII / push-token redaction)
+  console.log(`[push] Sending ${type} push`);
 
   const pushData = { screen: "chat", conversationId };
 
@@ -115,28 +116,14 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
       break;
 
     case "new_message": {
-      const senderId = payload.senderId as string;
-      const messageContent = payload.messageContent as string | undefined;
-      const messageType = payload.messageType as string | undefined;
-      const sender = await prisma.user.findUnique({
-        where: { id: senderId },
-        select: { anonymousAlias: true },
-      });
-      const alias = sender?.anonymousAlias ?? "Someone";
-      // Check if recipient set a nickname for this sender in this conversation
-      const nickname = conversationId
-        ? await getNickname(conversationId, recipientId)
-        : null;
-      console.log(`[push] Nickname lookup: conv=${conversationId} recipient=${recipientId} nickname=${nickname} alias=${alias}`);
-      const senderName = nickname || alias;
-      const body = messageType === "voice"
-        ? "Sent you a voice note"
-        : messageContent ?? "Sent you a message";
+      // Neutral copy only: never the message content, sender alias/nickname,
+      // category, or any sensitive cohort data. Everything a notification
+      // needs to route lives in `pushData` (screen + conversationId).
       await sendExpoPush(
         token,
-        senderName,
-        body,
-        { ...pushData, senderAlias: senderName, conversationId },
+        "Empath",
+        "You have a new message",
+        pushData,
       );
       break;
     }
@@ -151,11 +138,12 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
       break;
 
     case "match_proposed":
+      // No partner summary/category in the payload — routing only.
       await sendExpoPush(
         token,
         "New Match Proposal",
         "Someone who understands wants to connect with you",
-        { screen: "match", ...payload }
+        { screen: "match" }
       );
       break;
 
@@ -173,7 +161,7 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
         token,
         "Match Update",
         "Your match didn't go through — try again when you're ready",
-        { screen: "home", ...payload }
+        { screen: "home" }
       );
       break;
 
@@ -182,7 +170,7 @@ async function handlePushNotification(event: NotificationEvent): Promise<void> {
         token,
         "Match Update",
         "Your match request timed out — you're back in the queue and we're still looking",
-        { screen: "home", ...payload }
+        { screen: "home" }
       );
       break;
 
