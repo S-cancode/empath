@@ -4,7 +4,8 @@ import { encrypt, decrypt } from "../lib/crypto.js";
 import { emitNotification } from "../notifications/notification.service.js";
 import { isOnline } from "../presence/presence.service.js";
 import { getTierLimits } from "../config/tiers.js";
-import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError } from "../shared/errors.js";
+import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError, ContentBlockedError } from "../shared/errors.js";
+import { moderateText } from "../safety/content-moderation.service.js";
 import { SubscriptionTier } from "../shared/types.js";
 import { detectLanguageHeuristic, translateBatch, isSupportedLanguage } from "../translate/translate.service.js";
 
@@ -260,6 +261,21 @@ export async function sendVoiceNote(
   return message;
 }
 
+async function recordModerationBlock(
+  conversationId: string,
+  senderId: string,
+  categories: string[],
+): Promise<void> {
+  try {
+    await prisma.moderationBlock.create({
+      data: { conversationId, senderId, categories },
+    });
+  } catch (err) {
+    // Metadata logging must never block the rejection path.
+    console.error("[moderation] failed to record block:", (err as Error).message);
+  }
+}
+
 export async function sendAsyncMessage(
   conversationId: string,
   senderId: string,
@@ -271,6 +287,17 @@ export async function sendAsyncMessage(
     conversation.userAId === senderId
       ? conversation.userBId
       : conversation.userAId;
+
+  // Pre-delivery moderation: authorization → moderation → persistence →
+  // delivery. A blocked/quarantined message is never persisted as delivered,
+  // never emitted to the recipient, never pushed.
+  const moderation = await moderateText(plaintext);
+  if (!moderation.allowed) {
+    if (moderation.action === "block") {
+      await recordModerationBlock(conversationId, senderId, moderation.categories);
+    }
+    throw new ContentBlockedError(moderation.action === "quarantine");
+  }
 
   const encrypted = encrypt(plaintext);
   const sourceLanguage = detectLanguageHeuristic(plaintext);

@@ -320,6 +320,22 @@ model ModerationAction {
   @@map("moderation_actions")
 }
 
+/// Minimal metadata for a message rejected by pre-delivery moderation.
+/// Deliberately stores NO message content — only categories and actors — so
+/// the moderation trail can inform review/repeat-offender detection without
+/// creating a second copy of harmful content.
+model ModerationBlock {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  senderId       String   @map("sender_id")
+  categories     String[]
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("moderation_blocks")
+}
+
 model Complaint {
   id            String    @id @default(uuid())
   userId        String    @map("user_id")

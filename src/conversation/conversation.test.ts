@@ -49,6 +49,9 @@ vi.mock("../lib/prisma.js", () => ({
     user: {
       findUnique: vi.fn(),
     },
+    moderationBlock: {
+      create: vi.fn(),
+    },
   },
 }));
 
@@ -58,6 +61,11 @@ vi.mock("../notifications/notification.service.js", () => ({
 
 vi.mock("../presence/presence.service.js", () => ({
   isOnline: vi.fn(async () => false),
+}));
+
+const mockModerate = vi.fn(async () => ({ action: "allow", allowed: true, categories: [] as string[] }));
+vi.mock("../safety/content-moderation.service.js", () => ({
+  moderateText: (...a: unknown[]) => mockModerate(...a),
 }));
 
 import {
@@ -82,6 +90,7 @@ describe("conversation.service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     redisStrings.clear();
+    mockModerate.mockResolvedValue({ action: "allow", allowed: true, categories: [] });
   });
 
   describe("getConversationsForUser", () => {
@@ -130,6 +139,42 @@ describe("conversation.service", () => {
         id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
       });
       await expect(sendAsyncMessage("conv-1", "user-3", "Hello!")).rejects.toThrow("Not a participant");
+    });
+
+    it("blocked message never persists, never notifies, and records minimal metadata", async () => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
+        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
+      });
+      mockModerate.mockResolvedValue({ action: "block", allowed: false, categories: ["harassment"] });
+
+      await expect(sendAsyncMessage("conv-1", "user-1", "abusive")).rejects.toMatchObject({
+        code: "message_blocked",
+      });
+
+      expect(mockPrisma.message.create).not.toHaveBeenCalled();
+      expect(emitNotification).not.toHaveBeenCalled();
+      expect(mockPrisma.moderationBlock.create).toHaveBeenCalledWith({
+        data: { conversationId: "conv-1", senderId: "user-1", categories: ["harassment"] },
+      });
+      // Minimal metadata only — never the message content.
+      const recorded = JSON.stringify((mockPrisma.moderationBlock.create as any).mock.calls[0][0]);
+      expect(recorded).not.toContain("abusive");
+    });
+
+    it("quarantined message never persists or notifies and records no block metadata", async () => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
+        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
+      });
+      mockModerate.mockResolvedValue({ action: "quarantine", allowed: false, categories: [] });
+
+      await expect(sendAsyncMessage("conv-1", "user-1", "anything")).rejects.toMatchObject({
+        code: "message_quarantined",
+      });
+
+      expect(mockPrisma.message.create).not.toHaveBeenCalled();
+      expect(emitNotification).not.toHaveBeenCalled();
+      // A transient classifier outage is not a user violation — no block logged.
+      expect(mockPrisma.moderationBlock.create).not.toHaveBeenCalled();
     });
 
     it("tags detected source language on outgoing messages", async () => {

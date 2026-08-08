@@ -48,6 +48,26 @@ export class ComplianceError extends AppError {
   }
 }
 
+/**
+ * 422 for messages rejected by pre-delivery moderation. The message reason is
+ * neutral and never echoes the offending content. `quarantined` distinguishes
+ * "classifier unavailable, try again" from a definite policy block.
+ */
+export class ContentBlockedError extends AppError {
+  public quarantined: boolean;
+  constructor(quarantined = false) {
+    super(
+      quarantined
+        ? "Your message couldn't be sent right now. Please try again in a moment."
+        : "This message can't be sent because it may violate our Community Guidelines.",
+      422,
+      quarantined ? "message_quarantined" : "message_blocked",
+    );
+    this.name = "ContentBlockedError";
+    this.quarantined = quarantined;
+  }
+}
+
 export class UpgradeRequiredError extends AppError {
   public requiredTier: string;
 
