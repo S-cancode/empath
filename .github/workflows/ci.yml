@@ -17,6 +17,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # One backend test (src/translate/translationDisplay.test.ts) imports a
+      # pure helper from the client tree (client/src/components/chat/
+      # translationDisplay.ts). Vitest's transform reads that file's tsconfig,
+      # which extends expo/tsconfig.base — only present once client deps are
+      # installed. So the backend test job needs client node_modules too.
+      - name: Install client deps (backend test imports a client-side helper)
+        run: npm ci
+        working-directory: client
       - run: npm test
       - name: Production dependency audit (informational until Phase 1 completes)
         run: npm audit --omit=dev || true
