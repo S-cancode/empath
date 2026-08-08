@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { verifyAccessToken } from "../auth/auth.service.js";
 import { bufferMessage, endLiveSession, extendLiveSession, startLiveSession } from "./chat.service.js";
-import { sendAsyncMessage, sendVoiceNote, markDelivered, markRead } from "../conversation/conversation.service.js";
+import { sendAsyncMessage, markDelivered, markRead } from "../conversation/conversation.service.js";
 import { setOnline, setOffline, isOnline, getPartnerIdsForUser } from "../presence/presence.service.js";
 import { emitNotification, notificationBus } from "../notifications/notification.service.js";
 import type { NotificationEvent } from "../notifications/notification.service.js";
@@ -371,44 +371,10 @@ export function setupChatGateway(io: Server): void {
       }
     });
 
-    socket.on("conversation:voice-note", async (data: { conversationId: string; audio: string; durationMs: number; waveform?: number[] }) => {
-      if (!(await socketCompliant(socket, userId))) return;
-      // NOTE: crisis detection is keyword-based and runs on text only. Voice notes
-      // are not transcribed server-side, so they bypass detection. Safety relies on
-      // the recipient reporting flow for voice content. If server-side transcription
-      // is added (e.g. Whisper), feed the transcript into handleCrisisDetection here.
-      if (!checkMessageRate(userId)) {
-        socket.emit("error", { message: "Rate limit exceeded" });
-        return;
-      }
-
-      // Validate payload size (~2MB max for 60s compressed audio)
-      if (!data.audio || data.audio.length > 2_000_000) {
-        socket.emit("error", { message: "Voice note too large (max 60s)" });
-        return;
-      }
-
-      if (!data.durationMs || data.durationMs > 61_000) {
-        socket.emit("error", { message: "Voice note too long (max 60s)" });
-        return;
-      }
-
-      try {
-        const message = await sendVoiceNote(data.conversationId, userId, data.audio, data.durationMs, data.waveform);
-
-        socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
-          conversationId: data.conversationId,
-          messageId: message.id,
-          senderId: userId,
-          content: data.audio,
-          sentAt: message.sentAt.toISOString(),
-          messageType: "voice",
-          voiceDurationMs: data.durationMs,
-          waveform: data.waveform,
-        });
-      } catch (err: any) {
-        socket.emit("error", { message: err.message ?? "Failed to send voice note" });
-      }
+    socket.on("conversation:voice-note", async () => {
+      // Voice notes are DISABLED for v1 (no audio moderation/crisis/report
+      // parity). Reject any payload server-side without processing it.
+      socket.emit("error", { message: "Voice notes are not available." });
     });
 
     socket.on("message:delivered", async (data: { messageIds: string[] }) => {

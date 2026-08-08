@@ -51,6 +51,14 @@ Wave 1 (Phase 1): fix the 8 client TS errors starting with typed push:active/pus
 - **2d (this commit)**: Object/event authorization. New `src/chat/authz.ts` (participant/active/live-session assertions). **P0 fixed: `declineProposal` now rejects non-participants** (was: any authenticated user could cancel strangers' matches). Crisis detection reordered AFTER participant authorization on conversation:message and livesession:message. Participant guards added to message:read, livesession:invite (fixed neither-A-nor-B partner-derivation bug), livesession:accept, livesession:message (+session↔conversation match), livesession:extend, livesession:end; conversation:join refactored to the helper. AUTHORIZATION_MATRIX.md documents every event. 10 new negative/positive tests; 200/200 passing.
 - **Wave 2 COMPLETE.** Residual tracked for later waves: DELETE /safety/block bidirectional bug (Wave 3), admin shared secret (Wave 4).
 
+## Wave 3 — Safety invariants (COMPLETE)
+- **3a**: Pre-delivery content moderation (Apple 1.2). content-moderation.service (OpenAI omni-moderation + local heuristic, 4s timeout, fail-closed→quarantine); wired into sendAsyncMessage before persistence; blocked/quarantined never persist/notify/push; ModerationBlock table stores categories only (no content).
+- **3b**: Directional block fix — unblockUser removes only the caller's own block; reactivation requires NEITHER direction blocking.
+- **3c**: Neutral push — new_message shows "Empath / You have a new message" (was plaintext body, P0); plaintext removed from notification bus; match payloads routing-only; token not logged.
+- **3d**: Crisis privacy — crisis:detected to affected sender only, no keywords to peer; getCrisisResources country-aware + international fallback; User.crisisCountry + /settings/crisis-country.
+- **3e**: Voice disabled for v1 — sendVoiceNote + socket voice-note + REST voice-note all reject server-side; client voice UI removed (ChatInput text-only, useVoiceRecorder + VoiceMessageBubble deleted); expo-av dependency + mic permission + plugin removed from app.json. No microphone reference remains in release config; backend rejects voice payloads (test).
+- 223/223 tests; client tsc clean; expo-doctor 18/18.
+
 ## Phase plan (agreed with owner)
 Wave 0: baseline/truth/CI (this) → Wave 1: technical health (8 TS errors, Expo patches, dep vulns) → Wave 2: persistent identity (SIWA pending owner decision), canonical compliance, authorization matrix → Wave 3: pre-delivery moderation, directional blocks, crisis privacy, neutral push, voice removal → Wave 4: moderator accountability, privacy/retention truth, free-v1 sweep, structured matching → Wave 5: reviewer fixture, EAS artifact inspection, device QA/TestFlight/soak.
 

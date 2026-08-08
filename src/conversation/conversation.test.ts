@@ -71,6 +71,7 @@ vi.mock("../safety/content-moderation.service.js", () => ({
 import {
   getConversationsForUser,
   sendAsyncMessage,
+  sendVoiceNote,
   getMessages,
   markDelivered,
   markRead,
@@ -91,6 +92,15 @@ describe("conversation.service", () => {
     vi.clearAllMocks();
     redisStrings.clear();
     mockModerate.mockResolvedValue({ action: "allow", allowed: true, categories: [] });
+  });
+
+  describe("sendVoiceNote (disabled for v1)", () => {
+    it("rejects any voice payload server-side without persisting", async () => {
+      await expect(
+        sendVoiceNote("conv-1", "user-1", "base64audio", 3000, [0.1, 0.2]),
+      ).rejects.toThrow(/not available/i);
+      expect(mockPrisma.message.create).not.toHaveBeenCalled();
+    });
   });
 
   describe("getConversationsForUser", () => {

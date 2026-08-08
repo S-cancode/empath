@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { colors } from "@/theme/colors";
-import { VoiceMessageBubble } from "./VoiceMessageBubble";
 import { resolveDisplay } from "./translationDisplay";
 
 interface MessageBubbleProps {
@@ -42,19 +41,6 @@ export function MessageBubble({
   sourceLanguage,
 }: MessageBubbleProps) {
   const [showOriginal, setShowOriginal] = useState(false);
-
-  if (messageType === "voice") {
-    return (
-      <VoiceMessageBubble
-        content={content}
-        durationMs={voiceDurationMs ?? 0}
-        isMine={isMine}
-        sentAt={sentAt}
-        deliveryStatus={deliveryStatus}
-        waveform={waveform}
-      />
-    );
-  }
 
   const time = new Date(sentAt).toLocaleTimeString([], {
     hour: "2-digit",

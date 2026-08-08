@@ -211,54 +211,16 @@ export async function getMessages(
 }
 
 export async function sendVoiceNote(
-  conversationId: string,
-  senderId: string,
-  base64Audio: string,
-  durationMs: number,
-  waveform?: number[],
-) {
-  const conversation = await getConversation(conversationId, senderId);
-  assertConversationActive(conversation);
-  const recipientId =
-    conversation.userAId === senderId
-      ? conversation.userBId
-      : conversation.userAId;
-
-  const encrypted = encrypt(base64Audio);
-
-  const message = await prisma.message.create({
-    data: {
-      conversationId,
-      senderId,
-      content: encrypted.ciphertext,
-      iv: encrypted.iv,
-      authTag: encrypted.authTag,
-      messageType: "voice",
-      voiceDurationMs: durationMs,
-      waveform: waveform ?? undefined,
-    },
-  });
-
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { lastMessageAt: message.sentAt },
-  });
-
-  const recipientOnline = await isOnline(recipientId);
-  emitNotification({
-    type: "new_message",
-    recipientId,
-    payload: {
-      conversationId,
-      messageId: message.id,
-      senderId,
-      messageType: "voice",
-      online: recipientOnline,
-    },
-    createdAt: new Date(),
-  });
-
-  return message;
+  _conversationId: string,
+  _senderId: string,
+  _base64Audio: string,
+  _durationMs: number,
+  _waveform?: number[],
+): Promise<never> {
+  // Voice notes are DISABLED for v1: audio has no equivalent
+  // moderation/crisis/report handling. Rejected server-side regardless of any
+  // client that still attempts to send it.
+  throw new ValidationError("Voice notes are not available.");
 }
 
 async function recordModerationBlock(
