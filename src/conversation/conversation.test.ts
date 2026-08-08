@@ -63,6 +63,11 @@ vi.mock("../presence/presence.service.js", () => ({
   isOnline: vi.fn(async () => false),
 }));
 
+const mockTranscribe = vi.fn(async () => "hello there");
+vi.mock("../safety/voice-transcription.service.js", () => ({
+  transcribeForModeration: (...a: unknown[]) => mockTranscribe(...a),
+}));
+
 const mockModerate = vi.fn(async () => ({ action: "allow", allowed: true, categories: [] as string[] }));
 vi.mock("../safety/content-moderation.service.js", () => ({
   moderateText: (...a: unknown[]) => mockModerate(...a),
@@ -92,40 +97,75 @@ describe("conversation.service", () => {
     vi.clearAllMocks();
     redisStrings.clear();
     mockModerate.mockResolvedValue({ action: "allow", allowed: true, categories: [] });
+    mockTranscribe.mockResolvedValue("hello there");
   });
 
-  describe("sendVoiceNote (guarded)", () => {
+  describe("sendVoiceNote (transcribe → moderate → persist)", () => {
+    // A valid, round-trippable base64 audio blob for the happy path.
+    const AUDIO = Buffer.from("fake audio bytes for tests").toString("base64");
+
     beforeEach(() => {
       (mockPrisma.conversation.findUnique as any).mockResolvedValue({
         id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
       });
       (mockPrisma.conversation.update as any).mockResolvedValue({});
       (mockPrisma.message.create as any).mockImplementation(async (args: any) => ({
-        id: "vmsg-1", ...args.data, sentAt: new Date(),
+        id: "vmsg-1", ...args.data, voiceDurationMs: args.data.voiceDurationMs, sentAt: new Date(),
       }));
     });
 
-    it("persists a voice note flagged as un-moderated for review", async () => {
-      const msg = await sendVoiceNote("conv-1", "user-1", "smallaudio", 3000, [0.1, 0.2]);
+    it("transcribes, moderates, then persists an allowed voice note", async () => {
+      const msg = await sendVoiceNote("conv-1", "user-1", AUDIO, 3000, [0.1, 0.2]);
       expect(msg.id).toBe("vmsg-1");
+      expect(mockTranscribe).toHaveBeenCalledTimes(1);
+      expect(mockModerate).toHaveBeenCalledTimes(1);
       const created = (mockPrisma.message.create as any).mock.calls[0][0].data;
       expect(created.messageType).toBe("voice");
-      expect(created.flagged).toBe(true);
     });
 
-    it("rejects non-participants", async () => {
-      await expect(sendVoiceNote("conv-1", "user-3", "smallaudio", 3000)).rejects.toThrow("Not a participant");
+    it("blocked voice never persists, never notifies, and logs no audio content", async () => {
+      mockModerate.mockResolvedValue({ action: "block", allowed: false, categories: ["harassment"] });
+      await expect(sendVoiceNote("conv-1", "user-1", AUDIO, 3000)).rejects.toMatchObject({ code: "message_blocked" });
+      expect(mockPrisma.message.create).not.toHaveBeenCalled();
+      expect(emitNotification).not.toHaveBeenCalled();
+      const blockArg = JSON.stringify((mockPrisma.moderationBlock.create as any).mock.calls[0][0]);
+      expect(blockArg).not.toContain(AUDIO);
+      expect(blockArg).toContain("voice");
     });
 
-    it("enforces the size limit server-side (never trusts the client)", async () => {
-      const tooBig = "a".repeat(2_000_001);
-      await expect(sendVoiceNote("conv-1", "user-1", tooBig, 3000)).rejects.toThrow(/too large/i);
+    it("quarantines (retryable) and never persists when transcription fails — fail closed", async () => {
+      mockTranscribe.mockRejectedValue(new Error("whisper down"));
+      await expect(sendVoiceNote("conv-1", "user-1", AUDIO, 3000)).rejects.toMatchObject({ code: "message_quarantined" });
+      expect(mockPrisma.message.create).not.toHaveBeenCalled();
+      expect(emitNotification).not.toHaveBeenCalled();
+    });
+
+    it("quarantines when moderation itself is unavailable", async () => {
+      mockModerate.mockRejectedValue(new Error("mod down"));
+      await expect(sendVoiceNote("conv-1", "user-1", AUDIO, 3000)).rejects.toMatchObject({ code: "message_quarantined" });
       expect(mockPrisma.message.create).not.toHaveBeenCalled();
     });
 
-    it("enforces the duration limit server-side", async () => {
-      await expect(sendVoiceNote("conv-1", "user-1", "smallaudio", 120_000)).rejects.toThrow(/too long/i);
+    it("rejects non-participants before any transcription", async () => {
+      await expect(sendVoiceNote("conv-1", "user-3", AUDIO, 3000)).rejects.toThrow("Not a participant");
+      expect(mockTranscribe).not.toHaveBeenCalled();
+    });
+
+    it("rejects malformed base64 audio", async () => {
+      await expect(sendVoiceNote("conv-1", "user-1", "not valid base64!!", 3000)).rejects.toThrow(/invalid/i);
+      expect(mockTranscribe).not.toHaveBeenCalled();
+    });
+
+    it("rejects zero, negative, and oversized duration", async () => {
+      for (const bad of [0, -1000, 60_001, 3.5]) {
+        await expect(sendVoiceNote("conv-1", "user-1", AUDIO, bad)).rejects.toThrow(/duration/i);
+      }
       expect(mockPrisma.message.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects an oversized decoded payload", async () => {
+      const huge = Buffer.alloc(1_600_001).toString("base64");
+      await expect(sendVoiceNote("conv-1", "user-1", huge, 3000)).rejects.toThrow(/too large/i);
     });
   });
 

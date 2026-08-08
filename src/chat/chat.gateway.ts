@@ -371,13 +371,20 @@ export function setupChatGateway(io: Server): void {
       }
     });
 
-    socket.on("conversation:voice-note", async (data: { conversationId: string; audio: string; durationMs: number; waveform?: number[] }) => {
-      // Same gates as text: compliance (blocks users who can't send text),
-      // participant authorization, and rate limiting — BEFORE any processing.
-      // Audio itself cannot be pre-moderated; sendVoiceNote flags it for review.
+    socket.on("conversation:voice-note", async (
+      data: { conversationId: string; audio: string; durationMs: number; waveform?: number[]; clientId?: string },
+      ack?: (result: { status: "sent" | "rejected" | "retry"; messageId?: string; message?: string }) => void,
+    ) => {
+      const reply = (r: { status: "sent" | "rejected" | "retry"; messageId?: string; message?: string }) => {
+        if (typeof ack === "function") ack(r);
+        else if (r.status !== "sent") socket.emit("error", { message: r.message ?? "Failed to send voice note" });
+      };
+
+      // Same gates as text, in order: compliance → rate → participant →
+      // validate → transcribe → moderate → persist (inside sendVoiceNote).
       if (!(await socketCompliant(socket, userId))) return;
       if (!checkMessageRate(userId)) {
-        socket.emit("error", { message: "Rate limit exceeded" });
+        reply({ status: "retry", message: "You're sending too fast — try again in a moment." });
         return;
       }
       try {
@@ -390,11 +397,15 @@ export function setupChatGateway(io: Server): void {
           content: data.audio,
           sentAt: message.sentAt.toISOString(),
           messageType: "voice",
-          voiceDurationMs: data.durationMs,
+          voiceDurationMs: message.voiceDurationMs ?? data.durationMs,
           waveform: data.waveform,
         });
+        reply({ status: "sent", messageId: message.id });
       } catch (err: any) {
-        socket.emit("error", { message: err.message ?? "Failed to send voice note" });
+        // Quarantine (safety provider unavailable) is retryable; everything
+        // else is a definite rejection with a neutral message.
+        const retryable = err?.code === "message_quarantined";
+        reply({ status: retryable ? "retry" : "rejected", message: err?.message ?? "Voice note couldn't be sent." });
       }
     });
 

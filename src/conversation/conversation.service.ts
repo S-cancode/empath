@@ -6,6 +6,8 @@ import { isOnline } from "../presence/presence.service.js";
 import { getTierLimits } from "../config/tiers.js";
 import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError, ContentBlockedError } from "../shared/errors.js";
 import { moderateText } from "../safety/content-moderation.service.js";
+import { transcribeForModeration } from "../safety/voice-transcription.service.js";
+import { validateVoicePayload } from "./voice-validation.js";
 import { SubscriptionTier } from "../shared/types.js";
 import { detectLanguageHeuristic, translateBatch, isSupportedLanguage } from "../translate/translate.service.js";
 
@@ -212,9 +214,6 @@ export async function getMessages(
 
 // Authoritative server-side limits (never trust the client): ~2MB base64 for
 // up to 60s of compressed audio.
-const VOICE_MAX_BASE64_BYTES = 2_000_000;
-const VOICE_MAX_DURATION_MS = 61_000;
-
 export async function sendVoiceNote(
   conversationId: string,
   senderId: string,
@@ -225,14 +224,26 @@ export async function sendVoiceNote(
   const conversation = await getConversation(conversationId, senderId);
   assertConversationActive(conversation);
 
-  // Safety floor for voice: audio cannot be pre-moderated or crisis-scanned
-  // like text, so enforce hard size/duration limits server-side and mark the
-  // message as un-moderated (flagged) so it surfaces for review if reported.
-  if (!base64Audio || base64Audio.length > VOICE_MAX_BASE64_BYTES) {
-    throw new ValidationError("Voice note too large (max 60s).");
+  // Validate + decode the bounded payload before any processing.
+  const { audio, durationMs: validDuration, waveform: validWaveform } =
+    validateVoicePayload({ conversationId, audio: base64Audio, durationMs, waveform });
+
+  // Pre-delivery moderation for audio: transcribe → run the SAME text
+  // moderator → discard the transcript. Fail closed on any transcription or
+  // moderation error so unmoderated audio is never delivered.
+  let moderation;
+  try {
+    const transcript = await transcribeForModeration(audio);
+    moderation = await moderateText(transcript);
+  } catch {
+    // Retryable: the safety provider is unavailable, so quarantine.
+    throw new ContentBlockedError(true);
   }
-  if (!durationMs || durationMs > VOICE_MAX_DURATION_MS) {
-    throw new ValidationError("Voice note too long (max 60s).");
+  if (!moderation.allowed) {
+    if (moderation.action === "block") {
+      await recordModerationBlock(conversationId, senderId, [...moderation.categories, "voice"]);
+    }
+    throw new ContentBlockedError(moderation.action === "quarantine");
   }
 
   const recipientId =
@@ -250,10 +261,8 @@ export async function sendVoiceNote(
       iv: encrypted.iv,
       authTag: encrypted.authTag,
       messageType: "voice",
-      voiceDurationMs: durationMs,
-      waveform: waveform ?? undefined,
-      // Un-moderated audio: flagged so moderators can prioritise it on report.
-      flagged: true,
+      voiceDurationMs: validDuration,
+      waveform: validWaveform ?? undefined,
     },
   });
 
