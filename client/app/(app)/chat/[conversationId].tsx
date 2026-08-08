@@ -150,6 +150,23 @@ export default function ChatScreen() {
     [sendMessage]
   );
 
+  const handleSendVoice = useCallback(
+    (voiceData: { audio: string; durationMs: number; waveform: number[] }) => {
+      socket?.emit("conversation:voice-note", {
+        conversationId: conversationId!,
+        audio: voiceData.audio,
+        durationMs: voiceData.durationMs,
+        waveform: voiceData.waveform,
+      });
+      // Refetch to pick up the persisted voice note.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+      }, 800);
+    },
+    [socket, conversationId, queryClient]
+  );
+
   const handleRename = () => {
     Alert.prompt(
       "Rename conversation",
@@ -358,7 +375,7 @@ export default function ChatScreen() {
 
           {isTyping && <TypingIndicator />}
 
-          <ChatInput onSend={handleSend} onTyping={emitTyping} />
+          <ChatInput onSend={handleSend} onSendVoice={handleSendVoice} onTyping={emitTyping} />
 
           {crisisData && (
             <CrisisAlert

@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { verifyAccessToken } from "../auth/auth.service.js";
 import { bufferMessage, endLiveSession, extendLiveSession, startLiveSession } from "./chat.service.js";
-import { sendAsyncMessage, markDelivered, markRead } from "../conversation/conversation.service.js";
+import { sendAsyncMessage, sendVoiceNote, markDelivered, markRead } from "../conversation/conversation.service.js";
 import { setOnline, setOffline, isOnline, getPartnerIdsForUser } from "../presence/presence.service.js";
 import { emitNotification, notificationBus } from "../notifications/notification.service.js";
 import type { NotificationEvent } from "../notifications/notification.service.js";
@@ -371,10 +371,31 @@ export function setupChatGateway(io: Server): void {
       }
     });
 
-    socket.on("conversation:voice-note", async () => {
-      // Voice notes are DISABLED for v1 (no audio moderation/crisis/report
-      // parity). Reject any payload server-side without processing it.
-      socket.emit("error", { message: "Voice notes are not available." });
+    socket.on("conversation:voice-note", async (data: { conversationId: string; audio: string; durationMs: number; waveform?: number[] }) => {
+      // Same gates as text: compliance (blocks users who can't send text),
+      // participant authorization, and rate limiting — BEFORE any processing.
+      // Audio itself cannot be pre-moderated; sendVoiceNote flags it for review.
+      if (!(await socketCompliant(socket, userId))) return;
+      if (!checkMessageRate(userId)) {
+        socket.emit("error", { message: "Rate limit exceeded" });
+        return;
+      }
+      try {
+        await assertActiveConversationParticipant(data.conversationId, userId);
+        const message = await sendVoiceNote(data.conversationId, userId, data.audio, data.durationMs, data.waveform);
+        socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
+          conversationId: data.conversationId,
+          messageId: message.id,
+          senderId: userId,
+          content: data.audio,
+          sentAt: message.sentAt.toISOString(),
+          messageType: "voice",
+          voiceDurationMs: data.durationMs,
+          waveform: data.waveform,
+        });
+      } catch (err: any) {
+        socket.emit("error", { message: err.message ?? "Failed to send voice note" });
+      }
     });
 
     socket.on("message:delivered", async (data: { messageIds: string[] }) => {

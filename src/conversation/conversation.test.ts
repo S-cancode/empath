@@ -94,11 +94,37 @@ describe("conversation.service", () => {
     mockModerate.mockResolvedValue({ action: "allow", allowed: true, categories: [] });
   });
 
-  describe("sendVoiceNote (disabled for v1)", () => {
-    it("rejects any voice payload server-side without persisting", async () => {
-      await expect(
-        sendVoiceNote("conv-1", "user-1", "base64audio", 3000, [0.1, 0.2]),
-      ).rejects.toThrow(/not available/i);
+  describe("sendVoiceNote (guarded)", () => {
+    beforeEach(() => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({
+        id: "conv-1", userAId: "user-1", userBId: "user-2", status: "active",
+      });
+      (mockPrisma.conversation.update as any).mockResolvedValue({});
+      (mockPrisma.message.create as any).mockImplementation(async (args: any) => ({
+        id: "vmsg-1", ...args.data, sentAt: new Date(),
+      }));
+    });
+
+    it("persists a voice note flagged as un-moderated for review", async () => {
+      const msg = await sendVoiceNote("conv-1", "user-1", "smallaudio", 3000, [0.1, 0.2]);
+      expect(msg.id).toBe("vmsg-1");
+      const created = (mockPrisma.message.create as any).mock.calls[0][0].data;
+      expect(created.messageType).toBe("voice");
+      expect(created.flagged).toBe(true);
+    });
+
+    it("rejects non-participants", async () => {
+      await expect(sendVoiceNote("conv-1", "user-3", "smallaudio", 3000)).rejects.toThrow("Not a participant");
+    });
+
+    it("enforces the size limit server-side (never trusts the client)", async () => {
+      const tooBig = "a".repeat(2_000_001);
+      await expect(sendVoiceNote("conv-1", "user-1", tooBig, 3000)).rejects.toThrow(/too large/i);
+      expect(mockPrisma.message.create).not.toHaveBeenCalled();
+    });
+
+    it("enforces the duration limit server-side", async () => {
+      await expect(sendVoiceNote("conv-1", "user-1", "smallaudio", 120_000)).rejects.toThrow(/too long/i);
       expect(mockPrisma.message.create).not.toHaveBeenCalled();
     });
   });

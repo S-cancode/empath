@@ -21,7 +21,8 @@ export const tierConfig: Record<SubscriptionTier, TierLimits> = {
   // v1 ships a single free tier. FREE gets every WORKING feature so nothing is
   // shown-but-locked (Apple 2.1/3.1.1). Features whose endpoints are still 501
   // stubs (journaling, scheduling, post-session summary, match preferences) and
-  // voice (disabled entirely in v1) stay off — and have no client surface.
+  // stub-only features (journaling, scheduling, summary, preferences) stay off
+  // and have no client surface. Voice notes are available (guarded server-side).
   [SubscriptionTier.FREE]: {
     dailyNewMatches: 10,
     liveSessionDurationMs: 45 * 60 * 1000,
@@ -31,7 +32,7 @@ export const tierConfig: Record<SubscriptionTier, TierLimits> = {
     priorityMatching: false,
     priorityScoreOffset: 0,
     canReconnectArchived: true,
-    canUseVoiceNotes: false,
+    canUseVoiceNotes: true,
     canScheduleSessions: false,
     canUseJournaling: false,
     canViewPostSessionSummary: false,

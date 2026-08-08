@@ -10,6 +10,12 @@ export interface ClientToServerEvents {
     conversationId: string;
     content: string;
   }) => void;
+  "conversation:voice-note": (data: {
+    conversationId: string;
+    audio: string;
+    durationMs: number;
+    waveform?: number[];
+  }) => void;
   "message:delivered": (data: { messageIds: string[] }) => void;
   "message:read": (data: {
     conversationId: string;

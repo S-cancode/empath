@@ -210,17 +210,73 @@ export async function getMessages(
   });
 }
 
+// Authoritative server-side limits (never trust the client): ~2MB base64 for
+// up to 60s of compressed audio.
+const VOICE_MAX_BASE64_BYTES = 2_000_000;
+const VOICE_MAX_DURATION_MS = 61_000;
+
 export async function sendVoiceNote(
-  _conversationId: string,
-  _senderId: string,
-  _base64Audio: string,
-  _durationMs: number,
-  _waveform?: number[],
-): Promise<never> {
-  // Voice notes are DISABLED for v1: audio has no equivalent
-  // moderation/crisis/report handling. Rejected server-side regardless of any
-  // client that still attempts to send it.
-  throw new ValidationError("Voice notes are not available.");
+  conversationId: string,
+  senderId: string,
+  base64Audio: string,
+  durationMs: number,
+  waveform?: number[],
+) {
+  const conversation = await getConversation(conversationId, senderId);
+  assertConversationActive(conversation);
+
+  // Safety floor for voice: audio cannot be pre-moderated or crisis-scanned
+  // like text, so enforce hard size/duration limits server-side and mark the
+  // message as un-moderated (flagged) so it surfaces for review if reported.
+  if (!base64Audio || base64Audio.length > VOICE_MAX_BASE64_BYTES) {
+    throw new ValidationError("Voice note too large (max 60s).");
+  }
+  if (!durationMs || durationMs > VOICE_MAX_DURATION_MS) {
+    throw new ValidationError("Voice note too long (max 60s).");
+  }
+
+  const recipientId =
+    conversation.userAId === senderId
+      ? conversation.userBId
+      : conversation.userAId;
+
+  const encrypted = encrypt(base64Audio);
+
+  const message = await prisma.message.create({
+    data: {
+      conversationId,
+      senderId,
+      content: encrypted.ciphertext,
+      iv: encrypted.iv,
+      authTag: encrypted.authTag,
+      messageType: "voice",
+      voiceDurationMs: durationMs,
+      waveform: waveform ?? undefined,
+      // Un-moderated audio: flagged so moderators can prioritise it on report.
+      flagged: true,
+    },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { lastMessageAt: message.sentAt },
+  });
+
+  const recipientOnline = await isOnline(recipientId);
+  emitNotification({
+    type: "new_message",
+    recipientId,
+    payload: {
+      conversationId,
+      messageId: message.id,
+      senderId,
+      messageType: "voice",
+      online: recipientOnline,
+    },
+    createdAt: new Date(),
+  });
+
+  return message;
 }
 
 async function recordModerationBlock(

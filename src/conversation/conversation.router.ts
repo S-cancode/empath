@@ -144,8 +144,8 @@ router.put("/:id/nickname", async (req, res, next) => {
 
 // Voice notes — available to all tiers, handled primarily via Socket.IO
 router.post("/:id/voice-note", async (_req, res) => {
-  // Voice notes are disabled for v1.
-  res.status(410).json({ error: "voice_notes_disabled", message: "Voice notes are not available." });
+  // Voice notes are sent via the Socket.IO conversation:voice-note event.
+  res.status(200).json({ message: "Use the Socket.IO conversation:voice-note event for voice notes" });
 });
 
 // Stub: Post-session summary (Premium+)

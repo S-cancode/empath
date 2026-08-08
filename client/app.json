@@ -39,7 +39,13 @@
       "expo-notifications",
       "expo-updates",
       "expo-apple-authentication",
-      "@sentry/react-native"
+      "@sentry/react-native",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Empath uses your microphone only to record voice notes you choose to send in a conversation."
+        }
+      ]
     ],
     "extra": {
       "router": {},
