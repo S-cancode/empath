@@ -59,6 +59,14 @@ Wave 1 (Phase 1): fix the 8 client TS errors starting with typed push:active/pus
 - **3e**: Voice disabled for v1 — sendVoiceNote + socket voice-note + REST voice-note all reject server-side; client voice UI removed (ChatInput text-only, useVoiceRecorder + VoiceMessageBubble deleted); expo-av dependency + mic permission + plugin removed from app.json. No microphone reference remains in release config; backend rejects voice payloads (test).
 - 223/223 tests; client tsc clean; expo-doctor 18/18.
 
+## Wave 4 — Ops, privacy, free v1, structured matching (COMPLETE, code-side)
+- **4a**: Free single-tier v1. FREE tier gets all working features (no shown-but-locked); dead monetization UI removed (UpgradePrompt/SubTagSheet/LockIcon); TierCard neutralized.
+- **4b**: Individual moderator accountability. Moderator accounts (email+password(bcrypt)+TOTP), short-lived session JWT with tokenVersion revocation, moderatorAuth middleware (server-derived actor), append-only ModeratorAuditLog, dashboard login, create-moderator script. APP_STORE_EXTERNAL_BLOCKERS.md created for rotation/access-review/on-call + legal items.
+- **4c**: Server-verified translation consent (ConsentRecord gate on enabling auto-translate); privacy notice corrected (Sign in with Apple not "anonymous", pseudonymity to peers, limited/logged moderator-access disclosure; no E2E/"completely anonymous" claims).
+- **4d**: Structured matching hard filter. Versioned MatchProfile (intent/interactionStyle/wantsAdvice), enum validation rejected server-side at join, areCompatible() hard filter runs in candidate selection BEFORE scoring (incompatible contexts never pair regardless of similarity), non-sensitive match rationale. 19 new tests incl. "never pairs incompatible contexts at high similarity".
+- 252/252 tests; client + server tsc clean; expo-doctor 18/18.
+- **Remaining for 4d (product decision + client work, flagged):** capturing intent/interactionStyle from the user needs onboarding/prompt UI; backend enforces compatibility whenever the profile is present, but the client does not yet collect it. Also documented: hard filter runs in the candidate-evaluation loop (top-20) rather than the SQL WHERE — acceptable given matchContext is JSONB, full SQL pre-filter is a possible later optimization.
+
 ## Phase plan (agreed with owner)
 Wave 0: baseline/truth/CI (this) → Wave 1: technical health (8 TS errors, Expo patches, dep vulns) → Wave 2: persistent identity (SIWA pending owner decision), canonical compliance, authorization matrix → Wave 3: pre-delivery moderation, directional blocks, crisis privacy, neutral push, voice removal → Wave 4: moderator accountability, privacy/retention truth, free-v1 sweep, structured matching → Wave 5: reviewer fixture, EAS artifact inspection, device QA/TestFlight/soak.
 

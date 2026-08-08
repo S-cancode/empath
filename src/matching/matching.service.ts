@@ -5,6 +5,7 @@ import { emitNotification } from "../notifications/notification.service.js";
 import { getTierLimits } from "../config/tiers.js";
 import { isBlocked } from "../safety/safety.service.js";
 import { ForbiddenError } from "../shared/errors.js";
+import { areCompatible, profileFromContext } from "./compatibility.js";
 import type { MatchRequest, MatchResult } from "./matching.types.js";
 
 const GLOBAL_QUEUE_KEY = "match:queue:global";
@@ -253,6 +254,14 @@ export async function tryMatchAllPairs(): Promise<MatchResult[]> {
       const candidate = candidates[candidateIndex];
 
       if (await isBlocked(anchor.userId, candidate.userId)) continue;
+
+      // Hard compatibility filter BEFORE scoring: incompatible structured
+      // contexts (e.g. two pure seekers, or one_off vs ongoing) never pair,
+      // regardless of embedding similarity.
+      if (!areCompatible(
+        profileFromContext(anchor.matchContext),
+        profileFromContext(candidate.matchContext),
+      )) continue;
 
       const cosinePart = sim.similarity * 0.9;
       const waitMs = Date.now() - candidate.joinedAt;

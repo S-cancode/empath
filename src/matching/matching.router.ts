@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { joinQueue, leaveQueue, getDailyMatchStatus } from "./matching.service.js";
+import { validateMatchProfile } from "./compatibility.js";
 import { authMiddleware, requireTier, requireCompliance } from "../auth/auth.middleware.js";
 import { apiLimiter } from "../shared/rate-limiter.js";
 import { ValidationError, UpgradeRequiredError, ForbiddenError } from "../shared/errors.js";
@@ -37,6 +38,12 @@ router.post("/join", apiLimiter, authMiddleware, async (req, res, next) => {
     const parsed = joinSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues[0].message);
+    }
+
+    // Reject unknown/malformed structured matching enums server-side before
+    // the profile ever reaches the queue.
+    if (parsed.data.matchContext && "profile" in parsed.data.matchContext) {
+      validateMatchProfile((parsed.data.matchContext as Record<string, unknown>).profile);
     }
 
     const tier = req.user!.tier;

@@ -314,6 +314,39 @@ describe("matching.service", () => {
     expect(types.filter((t) => t === "match_expired").length).toBe(0);
   });
 
+  it("never pairs incompatible structured contexts even at high similarity", async () => {
+    // Two pure seekers with a strong embedding match must NOT be paired.
+    await joinQueue({
+      userId: "user-1", category: "grief", tier: "free", joinedAt: 1000,
+      matchContext: { profile: { version: 1, intent: "seek_support" } },
+    });
+    await joinQueue({
+      userId: "user-2", category: "grief", tier: "free", joinedAt: 2000,
+      matchContext: { profile: { version: 1, intent: "seek_support" } },
+    });
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.99 });
+
+    const result = await tryMatchGlobal();
+    expect(result).toBeNull();
+    // Both remain queued.
+    expect(await getQueueSize()).toBe(2);
+  });
+
+  it("pairs compatible structured contexts (seeker + offerer)", async () => {
+    await joinQueue({
+      userId: "user-1", category: "grief", tier: "free", joinedAt: 1000,
+      matchContext: { profile: { version: 1, intent: "seek_support" } },
+    });
+    await joinQueue({
+      userId: "user-2", category: "grief", tier: "free", joinedAt: 2000,
+      matchContext: { profile: { version: 1, intent: "offer_support" } },
+    });
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.85 });
+
+    const result = await tryMatchGlobal();
+    expect(result).not.toBeNull();
+  });
+
   it("ignores a decline from a non-participant, leaving the proposal intact", async () => {
     await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
     await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
