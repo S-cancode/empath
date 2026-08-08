@@ -22,6 +22,7 @@ Items that cannot be completed in code. Each needs an owner, evidence, and an ex
 11. **DPIA + special-category-data assessment** updated to current data flows (Apple sign-in, OpenAI translation opt-in, moderation, crisis records, retention). Done when: signed DPIA on file.
 12. **UK Online Safety Act:** illegal-content risk assessment, applicable Codes-of-Practice controls, complaints/reporting records, priority-offence handling, accountable owner, children's-access assessment (app is 18+). Done when: risk assessment + records on file with an accountable owner named.
 13. **OpenAI DPA / ZDR** (from earlier work): confirm signed API DPA with SCCs, request zero-data-retention. Owner: Rohan.
+13a. **Voice transcription provider (OpenAI Whisper) DPA + retention confirmation.** Voice notes are sent to OpenAI's transcription API for pre-delivery safety checks. Confirm the same signed API DPA/SCCs cover the audio/transcription endpoints, and confirm OpenAI's retention posture for transcription inputs (request ZDR). App-side, transcripts are discarded immediately and never stored; audio itself is encrypted at rest. Owner: Rohan. Done when: DPA scope + transcription retention confirmed in writing.
 14. **Research/ethics classification** if applicable (peer mental-health support). Owner: Rohan.
 
 ## App Review access

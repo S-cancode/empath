@@ -67,6 +67,17 @@ Wave 1 (Phase 1): fix the 8 client TS errors starting with typed push:active/pus
 - 252/252 tests; client + server tsc clean; expo-doctor 18/18.
 - **Remaining for 4d (product decision + client work, flagged):** capturing intent/interactionStyle from the user needs onboarding/prompt UI; backend enforces compatibility whenever the profile is present, but the client does not yet collect it. Also documented: hard filter runs in the candidate-evaluation loop (top-20) rather than the SQL WHERE — acceptable given matchContext is JSONB, full SQL pre-filter is a possible later optimization.
 
+## Voice notes — re-added WITH transcription-based moderation (branch fix/voice-note-app-review)
+Owner chose to keep voice notes in v1 with a real safety pipeline (not disabled, not raw). Supersedes the earlier "voice disabled" note.
+- **T2 validation**: server-side runtime validation (non-empty conversation, valid round-trippable base64, decoded-size cap, positive-integer duration ≤60s, waveform ≤600 samples finite in [0,1]) before any decode/transcribe/encrypt/persist.
+- **T3 pre-delivery moderation**: auth → compliance → rate → validate → participant → decode → **OpenAI whisper-1 transcription → existing moderateText(transcript) → discard transcript** → persist/broadcast if allowed. Fail-closed: transcription/moderation failure → quarantine (retryable). Blocked/quarantined voice never persists/broadcasts/notifies. Transcript never stored/returned/logged.
+- **T4 exact reporting**: `Report.reportedMessageId` relation; server verifies the reported message belongs to the conversation + reported sender; long-press report on voice bubbles.
+- **T5 moderator playback**: `GET /admin/reports/:id/voice/:messageId` — moderator session, message must belong to the report, decrypt on demand, `Cache-Control: no-store`, audited (`play_reported_voice`, no audio content), no audio in list JSON, unreported voice not browsable. Dashboard audio player.
+- **T6 consent/permission UX**: versioned voice-privacy notice before first mic request (names OpenAI/US, transcription, discard, moderator review); acceptance stored + recorded as ConsentRecord(voice_notes v1.0); decline keeps text usable; mic denial explained with Open Settings; accurate NSMicrophoneUsageDescription.
+- **T7 reliable send + cleanup**: Socket.IO ack (processing/sent/rejected/retry) replaces the 800ms refetch; duplicate sends prevented; try/finally always resets iOS audio mode + deletes the source recording; playback temp files deleted on finish/stop/error/unmount.
+- **CI**: fixed independently (client deps in backend job; TOTP ±1 window). Green.
+- Tests: 277 backend passing (voice validation/moderation/reporting/playback covered); client tsc clean; expo-doctor 18/18; iOS export passes.
+
 ## Phase plan (agreed with owner)
 Wave 0: baseline/truth/CI (this) → Wave 1: technical health (8 TS errors, Expo patches, dep vulns) → Wave 2: persistent identity (SIWA pending owner decision), canonical compliance, authorization matrix → Wave 3: pre-delivery moderation, directional blocks, crisis privacy, neutral push, voice removal → Wave 4: moderator accountability, privacy/retention truth, free-v1 sweep, structured matching → Wave 5: reviewer fixture, EAS artifact inspection, device QA/TestFlight/soak.
 

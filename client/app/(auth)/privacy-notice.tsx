@@ -60,7 +60,7 @@ export default function PrivacyNoticeScreen() {
         <Text style={styles.body}>
           {"\u2022"} Other users (your matched peer, in chat only \u2014 they see your nickname, never your name, email, or Apple ID){"\n"}
           {"\u2022"} Our trained moderators, but only for a conversation you or your peer reports, or one preserved for a safety review (limited, logged access){"\n"}
-          {"\u2022"} AI provider \u2014 OpenAI, servers in the United States (receives a version of your matching text with identifying details removed, for matching and safety analysis; and, only if you turn on auto-translate in Settings, the content of your chat messages for translation){"\n"}
+          {"\u2022"} AI provider \u2014 OpenAI, servers in the United States: a version of your matching text with identifying details removed (for matching and safety); the content of a voice note you send (transcribed to check it for safety before delivery \u2014 the transcript is discarded after the check and never shown to anyone); and, only if you turn on auto-translate, the content of your chat messages for translation{"\n"}
           {"\u2022"} Hosting provider (for infrastructure){"\n"}
           {"\u2022"} Law enforcement (if legally compelled)
         </Text>
@@ -71,6 +71,7 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Anonymised matching data: Up to 180 days, then permanently deleted{"\n"}
           {"\u2022"} Chat messages: Encrypted at rest; automatically deleted after 7 days; messages related to an active report, or preserved for safeguarding or moderation review, are retained for as long as that purpose requires; deleted immediately on account deletion{"\n"}
           {"\u2022"} Translated message text (auto-translate users only): Cached in encrypted form for up to 24 hours, then deleted{"\n"}
+          {"\u2022"} Voice notes: Encrypted at rest and handled like other chat messages (7-day deletion, retained while reported or under safety review). The temporary transcript used for the safety check is discarded immediately and never stored{"\n"}
           {"\u2022"} Crisis signposting logs: 12 months, then deleted{"\n"}
           {"\u2022"} Account data: Retained until account deletion{"\n"}
           {"\u2022"} Device identifiers and IP addresses: Retained for the lifetime of the account; deleted within 30 days of account deletion{"\n"}

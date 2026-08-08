@@ -7,7 +7,7 @@ Peer-to-peer emotional support platform: users are matched by AI analysis of a f
 ## Tech stack
 
 **Backend** (`/src`): Node 20, TypeScript strict, Express 5, Socket.IO 4, Prisma 6 (PostgreSQL + pgvector), ioredis, Vitest.
-**Client** (`/client`): Expo SDK 54, expo-router v6, Zustand, TanStack Query, Socket.IO client, expo-av (voice — slated for removal in v1), Sentry.
+**Client** (`/client`): Expo SDK 54, expo-router v6, Zustand, TanStack Query, Socket.IO client, expo-av (voice notes — transcribed + moderated before delivery), Sentry.
 **Infra**: Docker Compose (Postgres 16 + Redis 7); Railway deploy from `main` (`npm start` = `prisma migrate deploy && node dist`).
 
 ## Commands
@@ -41,9 +41,9 @@ cd client && npx expo export --platform ios
 | `analyse/` | POST /match/analyse → PII-strip → OpenAI chat categorization + `text-embedding-3-large` embedding; stub mode without API key; raw prompt AES-encrypted in Redis `analyse:pending:{userId}` 10min TTL |
 | `matching/` | Postgres `match_queue_entries` (pgvector) + Redis zset queue; cosine top-20 → hybrid score (`sim*0.9 + waitBonus*0.1 − recentPenalty`, min 0.25); 7-day queue, 24h proposals w/ expiry re-queue, 48h wait ramp, 24h recent-match penalty; daily caps in Redis |
 | `chat/` | Socket.IO gateway (handshake = JWT + DB ban/suspension check), live sessions, in-memory message buffer, crisis-detection hook, per-user rate limit |
-| `conversation/` | Async threads (AES-256-GCM at rest), read receipts, archive/reconnect, nicknames, voice notes, auto-archive (hourly, 7d stale) + retention worker (6h) |
+| `conversation/` | Async threads (AES-256-GCM at rest), read receipts, archive/reconnect, nicknames, voice notes (validated → transcribed → moderated before delivery, fail-closed), auto-archive (hourly, 7d stale) + retention worker (6h) |
 | `safety/` | Crisis keyword/regex detection + resources; `crisis.service` (records CrisisEvent **and sets one-way retentionHold**); reports (re-encrypted conversation snapshot, priority, auto-block); user+device blocking; `enforcement.service` = the ONLY path for ban/suspend/lift (cross-instance socket disconnect via Redis `moderation:disconnect`) |
-| `admin/` | Moderation dashboard (public HTML shell; data endpoints behind shared `ADMIN_SECRET` Bearer) — queue, decrypted transcripts, dismiss/warn/suspend/ban/escalate, escalation resolve, stats |
+| `admin/` | Moderation dashboard (public HTML shell; data endpoints behind individual moderator sessions — email+password+TOTP login, append-only audit log) — queue, decrypted transcripts, reported-voice playback (audited), dismiss/warn/suspend/ban/escalate, escalation resolve, stats |
 | `compliance/` | Age/terms/consent recording (versioned canonical texts), DSAR export, complaints, account deletion, retention deletes |
 | `translate/` | Opt-in message translation via OpenAI; AES-encrypted Redis cache `translate:v2:` 24h TTL; local script heuristic for source-language tagging; NO LLM locale inference (removed for GDPR necessity) |
 | `notifications/` | EventEmitter bus (+ Redis publish with **no subscriber** — cross-instance leg unfinished) + Expo push sender |
