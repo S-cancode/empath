@@ -58,26 +58,34 @@ export function VoiceMessageBubble({
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const tmpFileRef = useRef<File | null>(null);
 
   const time = new Date(sentAt).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
 
-  useEffect(() => {
-    return () => {
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-      }
-    };
+  // Unload the sound and delete the decoded temp file. Safe to call from any
+  // path (finish, manual stop, error, unmount) — always leaves no temp file.
+  const teardownPlayback = useCallback(() => {
+    if (soundRef.current) {
+      soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+    if (tmpFileRef.current) {
+      try { tmpFileRef.current.delete(); } catch {}
+      tmpFileRef.current = null;
+    }
   }, []);
+
+  useEffect(() => {
+    return () => teardownPlayback();
+  }, [teardownPlayback]);
 
   const handlePlay = useCallback(async () => {
     if (isPlaying && soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
+      try { await soundRef.current.stopAsync(); } catch {}
+      teardownPlayback();
       setIsPlaying(false);
       setProgress(0);
       return;
@@ -93,6 +101,7 @@ export function VoiceMessageBubble({
       const tmpFile = new File(Paths.cache, `voice_${Date.now()}.m4a`);
       const bytes = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
       tmpFile.write(bytes);
+      tmpFileRef.current = tmpFile;
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: tmpFile.uri },
@@ -105,9 +114,7 @@ export function VoiceMessageBubble({
           if (status.didJustFinish) {
             setIsPlaying(false);
             setProgress(0);
-            sound.unloadAsync();
-            soundRef.current = null;
-            try { tmpFile.delete(); } catch {}
+            teardownPlayback();
           }
         }
       );
@@ -115,10 +122,11 @@ export function VoiceMessageBubble({
       soundRef.current = sound;
       setIsPlaying(true);
     } catch (err) {
-      console.error("Voice playback error:", err);
+      console.error("Voice playback error");
+      teardownPlayback();
       setIsPlaying(false);
     }
-  }, [content, isPlaying]);
+  }, [content, isPlaying, teardownPlayback]);
 
   // Scale bubble width based on duration: 2s → 45%, 60s → 85% of screen
   const screenWidth = Dimensions.get("window").width;

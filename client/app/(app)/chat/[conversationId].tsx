@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { colors } from "@/theme/colors";
@@ -78,6 +79,7 @@ export default function ChatScreen() {
   const blockMutation = useBlockUser();
   const [reportVisible, setReportVisible] = useState(false);
   const [reportedMessageId, setReportedMessageId] = useState<string | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "processing" | "sent">("idle");
   const clearUnread = useConversationsStore((s) => s.clearUnread);
   const setActiveConversation = useConversationsStore((s) => s.setActiveConversation);
   const optimisticMessages = useConversationsStore(
@@ -151,19 +153,37 @@ export default function ChatScreen() {
     [sendMessage]
   );
 
+  const voiceSendingRef = React.useRef(false);
   const handleSendVoice = useCallback(
     (voiceData: { audio: string; durationMs: number; waveform: number[] }) => {
-      socket?.emit("conversation:voice-note", {
-        conversationId: conversationId!,
-        audio: voiceData.audio,
-        durationMs: voiceData.durationMs,
-        waveform: voiceData.waveform,
-      });
-      // Refetch to pick up the persisted voice note.
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-      }, 800);
+      if (!socket || voiceSendingRef.current) return; // prevent duplicate sends
+      voiceSendingRef.current = true;
+      setVoiceStatus("processing");
+
+      socket.emit(
+        "conversation:voice-note",
+        {
+          conversationId: conversationId!,
+          audio: voiceData.audio,
+          durationMs: voiceData.durationMs,
+          waveform: voiceData.waveform,
+        },
+        (res) => {
+          voiceSendingRef.current = false;
+          if (res?.status === "sent") {
+            setVoiceStatus("sent");
+            // Server confirmed persistence — refetch deterministically (no timer).
+            queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+          } else if (res?.status === "retry") {
+            setVoiceStatus("idle");
+            Alert.alert("Couldn't send just now", res.message ?? "Please try sending the voice note again.");
+          } else {
+            setVoiceStatus("idle");
+            Alert.alert("Voice note not sent", res?.message ?? "This voice note couldn't be sent.");
+          }
+        }
+      );
     },
     [socket, conversationId, queryClient]
   );
@@ -380,6 +400,13 @@ export default function ChatScreen() {
 
           {isTyping && <TypingIndicator />}
 
+          {voiceStatus === "processing" && (
+            <View style={styles.voiceStatusBar}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.voiceStatusText}>Checking and sending your voice note…</Text>
+            </View>
+          )}
+
           <ChatInput onSend={handleSend} onSendVoice={handleSendVoice} onTyping={emitTyping} />
 
           {crisisData && (
@@ -404,6 +431,17 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
+  voiceStatusBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  voiceStatusText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+  },
   container: {
     flex: 1,
   },
