@@ -1,25 +1,37 @@
-import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
-import { config } from "../config/index.js";
+import { resolveModerator, type ModeratorSession } from "./moderator.service.js";
 import { AuthError } from "../shared/errors.js";
 
-function safeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+declare global {
+  namespace Express {
+    interface Request {
+      moderator?: ModeratorSession;
+    }
+  }
 }
 
-export function adminAuth(req: Request, _res: Response, next: NextFunction): void {
-  const secret = config.ADMIN_SECRET;
-  if (!secret) {
-    throw new AuthError("Admin access not configured");
-  }
-
+/**
+ * Individual moderator authentication. Replaces the shared ADMIN_SECRET:
+ * the actor is derived server-side from a short-lived session token, never
+ * trusted from the client body.
+ */
+export async function moderatorAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const token = req.headers.authorization?.startsWith("Bearer ")
     ? req.headers.authorization.slice(7)
     : null;
-  if (!token || !safeCompare(token, secret)) {
-    throw new AuthError("Invalid admin credentials");
+  if (!token) {
+    throw new AuthError("Moderator authentication required");
   }
-
+  req.moderator = await resolveModerator(token);
   next();
+}
+
+/** Require an admin-role moderator (e.g. for creating other moderators). */
+export function requireModeratorRole(role: "admin"): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, _res, next) => {
+    if (req.moderator?.role !== role) {
+      throw new AuthError("Insufficient moderator role");
+    }
+    next();
+  };
 }

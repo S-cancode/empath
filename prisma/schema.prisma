@@ -339,6 +339,45 @@ model ModerationBlock {
   @@map("moderation_blocks")
 }
 
+/// Individual moderator account (replaces the shared ADMIN_SECRET).
+/// Auth = email + password (bcrypt) + TOTP. Sessions are short-lived JWTs.
+model Moderator {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  totpSecret   String    @map("totp_secret")
+  role         String    @default("moderator") // moderator | admin
+  active       Boolean   @default(true)
+  tokenVersion Int       @default(0) @map("token_version")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  auditLogs ModeratorAuditLog[]
+
+  @@map("moderators")
+}
+
+/// Append-only audit trail of moderator access and actions. No update/delete
+/// path exists in code — records are immutable once written.
+model ModeratorAuditLog {
+  id          String   @id @default(uuid())
+  moderatorId String   @map("moderator_id")
+  action      String   // login | login_failed | view_report | take_action | resolve_escalation | ...
+  targetType  String?  @map("target_type")
+  targetId    String?  @map("target_id")
+  detail      String?
+  ipCipher    String?  @map("ip_cipher")
+  ipIv        String?  @map("ip_iv")
+  ipAuthTag   String?  @map("ip_auth_tag")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  moderator Moderator @relation(fields: [moderatorId], references: [id])
+
+  @@index([moderatorId])
+  @@index([createdAt])
+  @@map("moderator_audit_logs")
+}
+
 model Complaint {
   id            String    @id @default(uuid())
   userId        String    @map("user_id")
