@@ -7,7 +7,7 @@ import { emitNotification, notificationBus } from "../notifications/notification
 import type { NotificationEvent } from "../notifications/notification.service.js";
 import { setActiveConversation } from "../notifications/push.service.js";
 import { detectCrisis } from "../safety/crisis.detector.js";
-import { crisisResources } from "../safety/crisis.resources.js";
+import { getCrisisResources } from "../safety/crisis.resources.js";
 import { recordCrisisEvent } from "../safety/crisis.service.js";
 import { checkUserCompliance, checkUserComplianceCached } from "../compliance/compliance-gate.service.js";
 import {
@@ -138,17 +138,17 @@ async function handleCrisisDetection(
   }
   crisisAlertsSent.get(key)!.add(conversationId);
 
-  // Emit to BOTH users in the conversation (spec recommends showing to both)
-  const room = liveSessionId
-    ? `livesession:${liveSessionId}`
-    : `conversation:${conversationId}`;
-  io.to(room).emit("crisis:detected", {
-    resources: crisisResources,
-    keywords: crisisResult.matchedKeywords,
+  // Country-aware resources for the affected user (international fallback when
+  // unknown). Shown ONLY to the affected sender — the matched keywords reveal
+  // what they said and must never be disclosed to the peer.
+  const affected = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { crisisCountry: true },
   });
-  // Also emit directly to sender in case they haven't joined the room yet
+  const resources = getCrisisResources(affected?.crisisCountry ?? null);
+
   socket.emit("crisis:detected", {
-    resources: crisisResources,
+    resources,
     keywords: crisisResult.matchedKeywords,
   });
 
@@ -158,7 +158,7 @@ async function handleCrisisDetection(
       conversationId,
       liveSessionId: liveSessionId ?? null,
       triggerKeywords: crisisResult.matchedKeywords,
-      resourcesShown: crisisResources.map((r) => r.name),
+      resourcesShown: resources.map((r) => r.name),
     });
   } catch (err) {
     console.error("Failed to log crisis event:", err);

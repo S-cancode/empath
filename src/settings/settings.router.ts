@@ -20,6 +20,41 @@ const translationSchema = z.object({
   autoTranslateEnabled: z.boolean().optional(),
 });
 
+// Runtime, user-changeable country for crisis-resource routing. ISO-3166
+// alpha-2 (or null → international fallback). No membership/PII beyond a code.
+const crisisCountrySchema = z.object({
+  crisisCountry: z.string().length(2).toUpperCase().nullable(),
+});
+
+router.get("/crisis-country", async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user!.userId },
+      select: { crisisCountry: true },
+    });
+    res.json({ crisisCountry: user?.crisisCountry ?? null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/crisis-country", async (req, res, next) => {
+  try {
+    const parsed = crisisCountrySchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError("crisisCountry must be a 2-letter country code or null");
+    }
+    const user = await prisma.user.update({
+      where: { id: req.user!.userId },
+      data: { crisisCountry: parsed.data.crisisCountry },
+      select: { crisisCountry: true },
+    });
+    res.json({ crisisCountry: user.crisisCountry });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/translation", async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({

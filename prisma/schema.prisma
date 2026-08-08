@@ -71,6 +71,9 @@ model User {
   // to the AI provider for translation). Never default this to true.
   autoTranslateEnabled Boolean   @default(false) @map("auto_translate_enabled")
   languageDetectedAt   DateTime? @map("language_detected_at")
+  // ISO-3166 alpha-2 for country-aware crisis resources; user-changeable.
+  // Null → international fallback resources.
+  crisisCountry        String?   @map("crisis_country")
 
   conversationsAsA   Conversation[]     @relation("ConversationUserA")
   conversationsAsB   Conversation[]     @relation("ConversationUserB")
