@@ -204,6 +204,17 @@ async function complianceRevocationCascade(userId: string): Promise<void> {
   disconnectUserSockets(userId);
 }
 
+/**
+ * Server-side check for a granted, unwithdrawn translation consent. Gate for
+ * enabling auto-translate — never trust client-side consent logging alone.
+ */
+export async function hasTranslationConsent(userId: string): Promise<boolean> {
+  const record = await prisma.consentRecord.findFirst({
+    where: { userId, consentType: "translation", granted: true, withdrawnAt: null },
+  });
+  return !!record;
+}
+
 export async function hasValidConsent(userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({
     where: { id: userId },

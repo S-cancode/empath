@@ -32,8 +32,9 @@ export default function PrivacyNoticeScreen() {
 
         <Text style={styles.sectionTitle} accessibilityRole="header">2. What Data We Collect</Text>
         <Text style={styles.body}>
-          {"\u2022"} Device identifiers (to create your anonymous account){"\n"}
-          {"\u2022"} Email address (optional, if you upgrade your account){"\n"}
+          {"\u2022"} Sign in with Apple identifier (to create and secure your account){"\n"}
+          {"\u2022"} Device identifiers (used for safety enforcement, e.g. blocks){"\n"}
+          {"\u2022"} Email address (from Apple; may be a private relay address you can hide from us){"\n"}
           {"\u2022"} Date of birth (to verify you are 18+){"\n"}
           {"\u2022"} Free-text prompts (analysed for matching, then deleted){"\n"}
           {"\u2022"} Anonymised matching data, including numerical representations of your text, topic categories, and match quality scores, used to improve matching accuracy{"\n"}
@@ -57,7 +58,8 @@ export default function PrivacyNoticeScreen() {
 
         <Text style={styles.sectionTitle} accessibilityRole="header">4. Who We Share It With</Text>
         <Text style={styles.body}>
-          {"\u2022"} Other users (your matched peer, in chat only){"\n"}
+          {"\u2022"} Other users (your matched peer, in chat only \u2014 they see your nickname, never your name, email, or Apple ID){"\n"}
+          {"\u2022"} Our trained moderators, but only for a conversation you or your peer reports, or one preserved for a safety review (limited, logged access){"\n"}
           {"\u2022"} AI provider \u2014 OpenAI, servers in the United States (receives a version of your matching text with identifying details removed, for matching and safety analysis; and, only if you turn on auto-translate in Settings, the content of your chat messages for translation){"\n"}
           {"\u2022"} Hosting provider (for infrastructure){"\n"}
           {"\u2022"} Law enforcement (if legally compelled)

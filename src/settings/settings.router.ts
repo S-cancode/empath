@@ -2,8 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "../auth/auth.middleware.js";
 import { prisma } from "../lib/prisma.js";
-import { ValidationError } from "../shared/errors.js";
+import { ValidationError, ForbiddenError } from "../shared/errors.js";
 import { SUPPORTED_LANGUAGES } from "../translate/translate.service.js";
+import { hasTranslationConsent } from "../compliance/compliance.service.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -96,6 +97,17 @@ router.put("/translation", async (req, res, next) => {
       data.preferredDialect = parsed.data.preferredDialect;
     }
     if (parsed.data.autoTranslateEnabled !== undefined) {
+      // Enabling sends message content to the AI provider — require a
+      // server-recorded, unwithdrawn translation consent. Client-side logging
+      // alone is not sufficient.
+      if (parsed.data.autoTranslateEnabled === true) {
+        const consented = await hasTranslationConsent(req.user!.userId);
+        if (!consented) {
+          throw new ForbiddenError(
+            "Recorded translation consent is required before enabling auto-translate.",
+          );
+        }
+      }
       data.autoTranslateEnabled = parsed.data.autoTranslateEnabled;
     }
 
