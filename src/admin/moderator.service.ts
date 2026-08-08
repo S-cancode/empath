@@ -10,6 +10,11 @@ import { AuthError } from "../shared/errors.js";
 const MODERATOR_SESSION_TTL = "30m";
 const BCRYPT_ROUNDS = 12;
 
+// Accept the adjacent TOTP step (±30s) to tolerate clock skew between the
+// authenticator app and server — standard TOTP practice, and it also removes
+// the race where bcrypt.compare pushes verification across a step boundary.
+authenticator.options = { window: 1 };
+
 export interface ModeratorSession {
   moderatorId: string;
   role: string;
