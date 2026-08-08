@@ -314,6 +314,24 @@ describe("matching.service", () => {
     expect(types.filter((t) => t === "match_expired").length).toBe(0);
   });
 
+  it("ignores a decline from a non-participant, leaving the proposal intact", async () => {
+    await joinQueue({ userId: "user-1", category: "grief", tier: "free", joinedAt: 1000 });
+    await joinQueue({ userId: "user-2", category: "grief", tier: "free", joinedAt: 2000 });
+    mockSimilarities.push({ user_id: "user-2", similarity: 0.85 });
+
+    const result = await tryMatchGlobal();
+    const proposalId = result!.conversationId;
+
+    // An unrelated authenticated user tries to cancel someone else's match.
+    await expect(declineProposal(proposalId, "intruder")).rejects.toThrow(/participant/i);
+
+    // Proposal and both pending markers survive; nobody was re-queued.
+    expect(strings.get("match:proposal:" + proposalId)).toBeTruthy();
+    expect(strings.get("match:pending:user-1")).toBeTruthy();
+    expect(strings.get("match:pending:user-2")).toBeTruthy();
+    expect(await getQueueSize()).toBe(0);
+  });
+
   it("cleanup keeps queue entries younger than 7 days", async () => {
     // 31 minutes old — would have been evicted under the old 30-minute window.
     await joinQueue({

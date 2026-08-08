@@ -10,6 +10,11 @@ import { detectCrisis } from "../safety/crisis.detector.js";
 import { crisisResources } from "../safety/crisis.resources.js";
 import { recordCrisisEvent } from "../safety/crisis.service.js";
 import { checkUserCompliance, checkUserComplianceCached } from "../compliance/compliance-gate.service.js";
+import {
+  assertConversationParticipant,
+  assertActiveConversationParticipant,
+  assertLiveSessionParticipant,
+} from "./authz.js";
 import { acceptProposal, declineProposal } from "../matching/matching.service.js";
 import { redis } from "../lib/redis.js";
 import { getTierLimits } from "../config/tiers.js";
@@ -284,13 +289,10 @@ export function setupChatGateway(io: Server): void {
     // --- Conversation events (async messaging) ---
 
     socket.on("conversation:join", async (data: { conversationId: string }) => {
-      const conversation = await prisma.conversation.findUnique({ where: { id: data.conversationId } });
-      if (!conversation || conversation.status !== "active") {
+      try {
+        await assertActiveConversationParticipant(data.conversationId, userId);
+      } catch {
         socket.emit("error", { message: "Invalid or inactive conversation" });
-        return;
-      }
-      if (conversation.userAId !== userId && conversation.userBId !== userId) {
-        socket.emit("error", { message: "Not a participant" });
         return;
       }
 
@@ -310,6 +312,10 @@ export function setupChatGateway(io: Server): void {
       }
 
       try {
+        // Authorize BEFORE crisis detection or persistence: a non-participant
+        // must not be able to trigger crisis logging or writes on a thread.
+        await assertActiveConversationParticipant(data.conversationId, userId);
+
         await handleCrisisDetection(io, socket, userId, data.content, data.conversationId);
 
         const message = await sendAsyncMessage(data.conversationId, userId, data.content);
@@ -410,6 +416,12 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("message:read", async (data: { conversationId: string; upToMessageId: string }) => {
+      try {
+        await assertConversationParticipant(data.conversationId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
       await markRead(data.conversationId, userId, data.upToMessageId);
       socket.to(`conversation:${data.conversationId}`).emit("message:read", {
         conversationId: data.conversationId,
@@ -421,13 +433,15 @@ export function setupChatGateway(io: Server): void {
     // --- Live session events ---
 
     socket.on("livesession:invite", async (data: { conversationId: string }) => {
-      const conversation = await prisma.conversation.findUnique({ where: { id: data.conversationId } });
-      if (!conversation || conversation.status !== "active") {
+      let partnerId: string;
+      try {
+        // Participant check first — otherwise a non-member would resolve to
+        // userAId as "partner" and could invite strangers into a session.
+        ({ partnerId } = await assertActiveConversationParticipant(data.conversationId, userId));
+      } catch {
         socket.emit("error", { message: "Invalid conversation" });
         return;
       }
-
-      const partnerId = conversation.userAId === userId ? conversation.userBId : conversation.userAId;
       if (!(await isOnline(partnerId))) {
         socket.emit("error", { message: "Partner is not online" });
         return;
@@ -452,6 +466,13 @@ export function setupChatGateway(io: Server): void {
       const invite = liveSessionInvites.get(data.conversationId);
       if (!invite || invite.inviterId === userId) {
         socket.emit("error", { message: "No pending invite" });
+        return;
+      }
+      // The accepter must be the other participant of this conversation.
+      try {
+        await assertActiveConversationParticipant(data.conversationId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
         return;
       }
 
@@ -522,6 +543,19 @@ export function setupChatGateway(io: Server): void {
         return;
       }
 
+      // Authorize the session (and that it belongs to this conversation)
+      // before crisis detection or buffering.
+      try {
+        const session = await assertLiveSessionParticipant(data.liveSessionId, userId);
+        if (session.conversationId !== data.conversationId) {
+          socket.emit("error", { message: "Session/conversation mismatch" });
+          return;
+        }
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
+
       await handleCrisisDetection(io, socket, userId, data.content, data.conversationId, data.liveSessionId);
 
       bufferMessage(data.conversationId, userId, data.content, data.liveSessionId);
@@ -542,6 +576,12 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("livesession:extend", async (data: { liveSessionId: string }) => {
+      try {
+        await assertLiveSessionParticipant(data.liveSessionId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
       const limits = getTierLimits(userTier);
 
       if (!limits.canExtendSession) {
@@ -573,6 +613,12 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("livesession:end", async (data: { liveSessionId: string }) => {
+      try {
+        await assertLiveSessionParticipant(data.liveSessionId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
       await endLiveSession(data.liveSessionId);
       const timer = liveSessionTimers.get(data.liveSessionId);
       if (timer) {

@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { emitNotification } from "../notifications/notification.service.js";
 import { getTierLimits } from "../config/tiers.js";
 import { isBlocked } from "../safety/safety.service.js";
+import { ForbiddenError } from "../shared/errors.js";
 import type { MatchRequest, MatchResult } from "./matching.types.js";
 
 const GLOBAL_QUEUE_KEY = "match:queue:global";
@@ -465,6 +466,11 @@ export async function declineProposal(
   if (!raw) return;
 
   const proposal = JSON.parse(raw);
+  // Only a party to the proposal may decline it — otherwise any authenticated
+  // user could cancel strangers' matches by guessing/replaying a proposal id.
+  if (proposal.userAId !== userId && proposal.userBId !== userId) {
+    throw new ForbiddenError("Not a participant in this proposal");
+  }
   await redis.del(`match:proposal:${proposalId}`);
   await redis.del(`match:pending:${proposal.userAId}`);
   await redis.del(`match:pending:${proposal.userBId}`);
