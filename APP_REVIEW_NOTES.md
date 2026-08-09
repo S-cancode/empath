@@ -43,8 +43,18 @@ The reviewer does not need to wait for a real match. A scripted **demo conversat
 
 ## Data & privacy
 - Encryption in transit and at rest (not end-to-end — the server can read messages for the safety features above). Disclosed in the in-app Privacy Notice.
-- Processors: OpenAI (matching/analysis, voice transcription, optional translation), Sentry (diagnostics), Expo/APNs (push), Railway (hosting).
 - Push notifications are neutral ("You have a new message") — no message content.
+
+### Data-flow / processors (for App Store privacy labels)
+| Processor | Data | Purpose |
+|---|---|---|
+| Apple (Sign in with Apple) | Apple user identifier (`sub`), optional relay email | Account creation/security; not shown to peers |
+| OpenAI (US) | PII-stripped matching text; **voice-note audio → transcript** (discarded after safety check, not stored by Empath); message content **only if** auto-translate is on | Matching analysis, pre-delivery voice moderation, optional translation |
+| Sentry (EU ingest) | Crash/diagnostic data (no message content) | Diagnostics |
+| Expo / APNs | Device push token | Neutral push delivery |
+| Railway | Encrypted app data at rest | Hosting |
+
+Empath does not retain voice transcripts. **Provider-side retention / zero-data-retention for OpenAI (including transcription inputs) is not yet confirmed in writing** — tracked as an external blocker; do not represent it as complete.
 
 ## Known reviewer-facing notes
 - iPad: `supportsTablet` is currently true — confirm rendering or set false before submission.

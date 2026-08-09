@@ -81,19 +81,26 @@ Owner chose to keep voice notes in v1 with a real safety pipeline (not disabled,
 ## Phase plan (agreed with owner)
 Wave 0: baseline/truth/CI (this) → Wave 1: technical health (8 TS errors, Expo patches, dep vulns) → Wave 2: persistent identity (SIWA pending owner decision), canonical compliance, authorization matrix → Wave 3: pre-delivery moderation, directional blocks, crisis privacy, neutral push, voice removal → Wave 4: moderator accountability, privacy/retention truth, free-v1 sweep, structured matching → Wave 5: reviewer fixture, EAS artifact inspection, device QA/TestFlight/soak.
 
-## Open decisions (owner: Shivan/Rohan)
-1. Identity mechanism: Sign in with Apple (preferred by master prompt) vs email magic link. **Blocks Phase 2.**
-2. Voice notes disabled for v1 (master prompt directs yes — reverses mic-permission work from 7c67525). **Blocks Phase 7; assumed YES unless countermanded.**
-3. iPad: drop `supportsTablet` vs real iPad QA. **Blocks Phase 12 scope.**
-4. Moderator MFA scope for a two-person team. **Blocks Phase 8 design.**
+## Owner decisions — RESOLVED (previously open)
+1. Identity: **Sign in with Apple** (implemented, Wave 2). Public presence pseudonymous.
+2. Voice notes: **kept in v1 with transcription-based moderation** (fix/voice-note-app-review; Phase 1 finalization). Supersedes the earlier "voice disabled" decision.
+3. iPad: **dropped** — `supportsTablet: false` (iPhone-only v1).
+4. Moderator auth: **individual accounts + TOTP + audit log** (Wave 4b).
 
-## Known code blockers carried from master prompt (to re-verify per phase)
-P0: no requireCompliance on /match/analyse; socket auth lacks age/terms/consent; missing participant authorization on several REST/socket/live-session actions; `match:decline` mutable by non-participant; `DELETE /safety/block/:blockedUserId` deletes both directions (verified in source at 7c67525 — `src/safety/safety.router.ts:78-85`); push payloads carry plaintext message content; no pre-delivery content filter.
-P1: crisis detection ordering before authz; report snapshots over-broad; shared moderator secret; translation consent not server-verified before enable; disposable anonymous identity.
-P2: stale CLAUDE.md (being fixed), remaining tier/lock surface sweep, report retention minimization details.
+## Original P0/P1 code blockers — ALL RESOLVED
+P0 (all fixed): requireCompliance on /match/analyse (Wave 2c); socket age/terms/consent at connect (2c); participant authorization matrix (2d); `match:decline` participant check (2d); directional block fix (Wave 3b); neutral push payloads (3c); pre-delivery text moderation (3a) **and voice moderation** (finalization P1).
+P1 (all fixed): crisis-after-authz (2d); report snapshot minimization + no-audio-in-JSON (finalization P1); individual moderator auth (4b); server-verified translation consent (4c); durable Apple identity (2a).
+
+## Release config (Phase 4 — verified)
+- iPhone-only (`supportsTablet: false`); bundle `com.shivandongha.empath` consistent with server `APPLE_BUNDLE_ID` and `usesAppleSignIn: true`.
+- `ITSAppUsesNonExemptEncryption: false` set — the app uses HTTPS + standard AES only; the owner must still answer the export-compliance question in App Store Connect (not a legal conclusion made here).
+- No IAP/upsell/tier-lock surfaces (Wave 4a; UpgradePrompt/SubTagSheet/LockIcon deleted).
+- Mic usage string accurately describes optional voice + transcription safety check.
+- Reviewer demo path implemented and server-gated (Phase 3).
 
 ## Risks / notes
 - Apple Guideline 1.2 remains a residual review risk regardless of implementation quality. No approval is promised.
-- No pushes to origin without explicit owner instruction; commits are local milestones on `app-store-readiness`.
+- Voice moderation depends on OpenAI transcription; Empath retains no transcript, but provider-side retention/ZDR is **externally unverified** until confirmed in writing (see external blockers). Do not claim the provider immediately deletes inputs.
+- Public privacy/support URLs are ASC/legal items (external blockers), not verifiable from code.
 - Prisma: `match_queue_entries` is externally managed (prisma.config.ts) — generated migrations must never drop `match_queue_embedding_idx` (guard test in `src/lib/migration-guard.test.ts`).
 
