@@ -56,7 +56,7 @@ Wave 1 (Phase 1): fix the 8 client TS errors starting with typed push:active/pus
 - **3b**: Directional block fix — unblockUser removes only the caller's own block; reactivation requires NEITHER direction blocking.
 - **3c**: Neutral push — new_message shows "Empath / You have a new message" (was plaintext body, P0); plaintext removed from notification bus; match payloads routing-only; token not logged.
 - **3d**: Crisis privacy — crisis:detected to affected sender only, no keywords to peer; getCrisisResources country-aware + international fallback; User.crisisCountry + /settings/crisis-country.
-- **3e**: Voice disabled for v1 — sendVoiceNote + socket voice-note + REST voice-note all reject server-side; client voice UI removed (ChatInput text-only, useVoiceRecorder + VoiceMessageBubble deleted); expo-av dependency + mic permission + plugin removed from app.json. No microphone reference remains in release config; backend rejects voice payloads (test).
+- **3e** (SUPERSEDED — voice was re-added with moderation; see the "Voice notes" section below): originally disabled voice for v1. Current state: voice is ENABLED with transcription-based pre-delivery moderation; expo-av + mic permission are present and accurate. Do not read this bullet as current.
 - 223/223 tests; client tsc clean; expo-doctor 18/18.
 
 ## Wave 4 — Ops, privacy, free v1, structured matching (COMPLETE, code-side)
@@ -77,6 +77,12 @@ Owner chose to keep voice notes in v1 with a real safety pipeline (not disabled,
 - **T7 reliable send + cleanup**: Socket.IO ack (processing/sent/rejected/retry) replaces the 800ms refetch; duplicate sends prevented; try/finally always resets iOS audio mode + deletes the source recording; playback temp files deleted on finish/stop/error/unmount.
 - **CI**: fixed independently (client deps in backend job; TOTP ±1 window). Green.
 - Tests: 277 backend passing (voice validation/moderation/reporting/playback covered); client tsc clean; expo-doctor 18/18; iOS export passes.
+
+## Final release gates (branch fix/app-store-finalization, 2026-08-09)
+- Backend (clean `npm ci`): build OK; **299 tests pass** (37 files); `npm audit --omit=dev` **0 vulnerabilities**.
+- Client (clean `npm ci`): `tsc` clean; expo-doctor **18/18**; iOS export passes; `npm audit --omit=dev` **23 (0 critical)** — the documented Expo build-time toolchain highs (fix = Expo major; no `--force`).
+- Migration guard passes; no migration drops `match_queue_embedding_idx`; `git diff --check` clean.
+- Two independent reviews run: **security review cleared all areas (no P0/P1)**; **release-claim review** found stale docs only — all fixed (iPad/voice/test-count reconciliation, push disclosure, nickname-log redaction, dead Badge removed).
 
 ## Phase plan (agreed with owner)
 Wave 0: baseline/truth/CI (this) → Wave 1: technical health (8 TS errors, Expo patches, dep vulns) → Wave 2: persistent identity (SIWA pending owner decision), canonical compliance, authorization matrix → Wave 3: pre-delivery moderation, directional blocks, crisis privacy, neutral push, voice removal → Wave 4: moderator accountability, privacy/retention truth, free-v1 sweep, structured matching → Wave 5: reviewer fixture, EAS artifact inspection, device QA/TestFlight/soak.

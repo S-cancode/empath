@@ -9,7 +9,7 @@ Items that cannot be completed in code. Each needs an owner, evidence, and an ex
 ## App Store Connect metadata
 3. **App Privacy labels** mapped to actual processors: OpenAI (message content only when auto-translate on; matching prompt analysis), Sentry (crash/diagnostics), Expo push/APNs (device token), Railway (hosting). Owner: Shivan+Rohan. Done when: labels in ASC match the code's data flows (see PRIVACY docs). NOTE: no message content in push payloads (verified in code); translation is opt-in.
 4. **Age rating questionnaire + 18+ rule.** App has an 18+ age gate and mental-health content. Owner: Shivan. Done when: ASC rating is 17+ and the 18+ gate is described in review notes.
-5. **Screenshots** for every supported device class (or drop iPad — `supportsTablet` currently true). Owner: Shivan. Done when: screenshots uploaded or iPad support removed.
+5. **Screenshots** for iPhone device classes (iPad support is off — `supportsTablet: false`, iPhone-only v1). Owner: Shivan. Done when: iPhone screenshots uploaded to ASC.
 6. **Encryption / export-compliance answers.** `ITSAppUsesNonExemptEncryption=false` is set. Owner: Shivan. Confirm this is accurate (only HTTPS/standard crypto) in ASC.
 7. **Content rights** declaration. Owner: Shivan.
 

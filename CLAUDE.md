@@ -14,7 +14,7 @@ Peer-to-peer emotional support platform: users are matched by AI analysis of a f
 
 ```bash
 # Backend (root)
-npm test                    # Vitest (18 files; 153 passing at 7c67525)
+npm test                    # Vitest (299 passing at fix/app-store-finalization, 2026-08-09)
 npm run build               # prisma generate && tsc
 npx tsc --noEmit
 docker compose up -d        # local Postgres+Redis (user empath / empath_dev / db empath)
@@ -113,7 +113,7 @@ Highlights: `User` (deviceId identity, tier, banned/suspendedUntil, preferredLan
 
 P0: `/match/analyse` lacks requireCompliance; socket connect lacks age/terms/consent; incomplete participant authorization on several socket/REST/live-session events; `match:decline` reportedly mutable by non-participant (verify); bidirectional unblock bug; push payloads may carry plaintext message content; no pre-delivery content moderation; identity is disposable/anonymous (Apple Guideline 1.2 risk).
 P1: crisis detection ordering vs authorization; over-broad report snapshots; shared moderator secret (no individual identity/MFA/audit trail); translation consent logging is client-side best-effort; client TS errors (8) / Expo patch drift (7) / dependency vulns (2 client criticals).
-Planned product changes: Sign in with Apple (pseudonymous public presence), voice notes disabled for v1 (expo-av + mic permission to be removed), free-only v1.
+Shipped product decisions: Sign in with Apple (pseudonymous public presence), voice notes ENABLED with transcription-based pre-delivery moderation (expo-av + accurate mic permission present), free-only single-tier v1, iPhone-only (`supportsTablet: false`).
 
 ## Client structure (brief)
 

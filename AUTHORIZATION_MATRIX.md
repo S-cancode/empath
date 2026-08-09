@@ -11,7 +11,7 @@ Order of checks on content events: **authentication → compliance → object au
 | handshake | JWT | full gate | — | rejects deleted/banned/suspended/underage/terms/consent |
 | conversation:join | ✓ | (connect) | `assertActiveConversationParticipant` | |
 | conversation:message | ✓ | per-event | `assertActiveConversationParticipant` **before** crisis + persist | crisis-after-authz fixed |
-| conversation:voice-note | ✓ | per-event | `sendVoiceNote` → `getConversation(id, sender)` participant check | (voice removed in Wave 3) |
+| conversation:voice-note | ✓ | per-event | compliance + `assertActiveConversationParticipant`; `sendVoiceNote` validates → transcribes → moderates before persist | voice ENABLED with pre-delivery moderation |
 | message:read | ✓ | (connect) | `assertConversationParticipant` before receipt emit | added |
 | message:delivered | ✓ | (connect) | `markDelivered` filters `NOT senderId` + `deliveryStatus:sent`; updates only messages addressed to actor | idempotent, no cross-tenant write |
 | typing | ✓ | (connect) | room-scoped: `socket.to(room)` only reaches a room the actor joined (join is authorized) | |

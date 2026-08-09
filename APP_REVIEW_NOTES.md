@@ -57,7 +57,7 @@ The reviewer does not need to wait for a real match. A scripted **demo conversat
 Empath does not retain voice transcripts. **Provider-side retention / zero-data-retention for OpenAI (including transcription inputs) is not yet confirmed in writing** — tracked as an external blocker; do not represent it as complete.
 
 ## Known reviewer-facing notes
-- iPad: `supportsTablet` is currently true — confirm rendering or set false before submission.
+- iPhone-only: `supportsTablet` is `false`; the app targets iPhone for v1.
 - Guideline 1.2: the app materially implements operator-known identity, structured matching, pre-delivery filtering (text and voice), durable block/report, human moderation, and no public discovery.
 
 ## Support / moderation contact

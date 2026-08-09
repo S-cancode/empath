@@ -62,6 +62,7 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Our trained moderators, but only for a conversation you or your peer reports, or one preserved for a safety review (limited, logged access){"\n"}
           {"\u2022"} AI provider \u2014 OpenAI, servers in the United States: a version of your matching text with identifying details removed (for matching and safety); the content of a voice note you send (transcribed to check it for safety before delivery \u2014 the transcript is discarded after the check and never shown to anyone); and, only if you turn on auto-translate, the content of your chat messages for translation{"\n"}
           {"\u2022"} Hosting provider (for infrastructure){"\n"}
+          {"\u2022"} Push notification services (Apple/Expo) \u2014 only a neutral "new message" alert with no message content{"\n"}
           {"\u2022"} Law enforcement (if legally compelled)
         </Text>
 

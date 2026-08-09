@@ -133,7 +133,7 @@ router.put("/:id/nickname", async (req, res, next) => {
     }
     const { setNickname } = await import("./conversation.service.js");
     const nickname = parsed.data.nickname ?? null;
-    console.log(`[nickname] Setting nickname for conv=${req.params.id} user=${req.user!.userId} nickname=${nickname}`);
+    // Nickname is user-authored PII — do not log its value.
     await setNickname(req.params.id, req.user!.userId, nickname);
     res.json({ ok: true });
   } catch (err) {
