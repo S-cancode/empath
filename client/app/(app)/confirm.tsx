@@ -15,12 +15,54 @@ import { useConversationsStore } from "@/stores/conversations.store";
 import { AppBackground } from "@/components/ui/AppBackground";
 import type { AnalyseResult } from "@/types/api";
 
+// Exact server enum values (src/matching/compatibility.ts). "either"/"mutual"
+// are real neutral choices shown selected by default — never silently faked.
+const MATCH_PROFILE_VERSION = 1;
+type Intent = "seek_support" | "offer_support" | "mutual";
+type InteractionStyle = "one_off" | "ongoing" | "either";
+type AdviceChoice = "listen" | "ideas" | "either";
+
+function SegmentedRow<T extends string>({
+  label, value, options, onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <View style={styles.prefRow}>
+      <Text style={styles.prefLabel}>{label}</Text>
+      <View style={styles.segments}>
+        {options.map((o) => {
+          const active = o.value === value;
+          return (
+            <TouchableOpacity
+              key={o.value}
+              style={[styles.segment, active && styles.segmentActive]}
+              onPress={() => onChange(o.value)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{o.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 export default function ConfirmScreen() {
   const router = useRouter();
   const { analysis } = useLocalSearchParams<{ analysis: string }>();
   const joinMatch = useJoinMatch();
   const setIsSearching = useConversationsStore((s) => s.setIsSearching);
   const [searching, setSearching] = useState(false);
+
+  // Neutral defaults (explicitly shown), preserved across a join retry.
+  const [intent, setIntent] = useState<Intent>("mutual");
+  const [style, setStyle] = useState<InteractionStyle>("either");
+  const [advice, setAdvice] = useState<AdviceChoice>("either");
 
   const result: AnalyseResult | null = useMemo(() => {
     try {
@@ -36,11 +78,21 @@ export default function ConfirmScreen() {
   }
 
   const handleFindMatch = () => {
+    // Build the versioned MatchProfile with exact server enums. "either" advice
+    // → omit wantsAdvice (no fabricated preference). Server validation is
+    // authoritative and rejects unknown values.
+    const profile: Record<string, unknown> = {
+      version: MATCH_PROFILE_VERSION,
+      intent,
+      interactionStyle: style,
+    };
+    if (advice !== "either") profile.wantsAdvice = advice === "ideas";
+
     joinMatch.mutate(
       {
         category: "ai-prompt",
         keywords: result.keywords,
-        matchContext: result as unknown as Record<string, unknown>,
+        matchContext: { ...(result as unknown as Record<string, unknown>), profile },
       },
       {
         onSuccess: () => {
@@ -93,8 +145,42 @@ export default function ConfirmScreen() {
         </View>
 
         <Text style={styles.matchNote}>
-          We'll find someone who understands what you're going through.
+          A few quick preferences help us match you better. Peers support each
+          other — no one here gives professional advice.
         </Text>
+
+        <View style={styles.prefCard}>
+          <SegmentedRow
+            label="Right now I'm…"
+            value={intent}
+            onChange={setIntent}
+            options={[
+              { value: "seek_support", label: "Looking for support" },
+              { value: "mutual", label: "Both" },
+              { value: "offer_support", label: "Able to support" },
+            ]}
+          />
+          <SegmentedRow
+            label="I'd like…"
+            value={style}
+            onChange={setStyle}
+            options={[
+              { value: "one_off", label: "A one-off chat" },
+              { value: "either", label: "Either" },
+              { value: "ongoing", label: "An ongoing connection" },
+            ]}
+          />
+          <SegmentedRow
+            label="I'm mostly…"
+            value={advice}
+            onChange={setAdvice}
+            options={[
+              { value: "listen", label: "Here to listen" },
+              { value: "either", label: "Either" },
+              { value: "ideas", label: "Open to shared ideas" },
+            ]}
+          />
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -201,6 +287,47 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     marginTop: 8,
+  },
+  prefCard: {
+    width: "100%",
+    marginTop: 8,
+  },
+  prefRow: {
+    marginBottom: 16,
+  },
+  prefLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: colors.text,
+    marginBottom: 8,
+  },
+  segments: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  segment: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  segmentText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: colors.textSecondary,
+    textAlign: "center",
+  },
+  segmentTextActive: {
+    color: colors.textInverse,
   },
   footer: {
     padding: 24,
