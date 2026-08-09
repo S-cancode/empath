@@ -382,7 +382,12 @@ export function setupChatGateway(io: Server): void {
 
       // Same gates as text, in order: compliance → rate → participant →
       // validate → transcribe → moderate → persist (inside sendVoiceNote).
-      if (!(await socketCompliant(socket, userId))) return;
+      // Every branch acknowledges so the client never hangs (a disconnected
+      // socket is additionally covered by the client-side timeout).
+      if (!(await socketCompliant(socket, userId))) {
+        reply({ status: "rejected", message: "Your account can't send messages right now." });
+        return;
+      }
       if (!checkMessageRate(userId)) {
         reply({ status: "retry", message: "You're sending too fast — try again in a moment." });
         return;

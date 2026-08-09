@@ -25,16 +25,20 @@ function isStubMode(): boolean {
 }
 
 /**
- * Transcribe decoded audio bytes to text. In stub mode (no API key) returns an
- * empty transcript — moderation of an empty string is treated as allow, which
- * is acceptable for local/dev where no real audio moves. Throws on any real
- * transcription failure so the caller fails closed.
+ * Transcribe decoded audio bytes to text for moderation. Fails CLOSED: any
+ * failure — including an empty or whitespace-only result, or stub mode where
+ * no real transcription is possible — throws so the caller quarantines the
+ * message rather than delivering unmoderated audio. An empty transcript must
+ * never reach moderation as an allowable empty string.
  */
 export async function transcribeForModeration(
   audio: Buffer,
   filename = "voice.m4a",
 ): Promise<string> {
-  if (isStubMode()) return "";
+  // No API key means we cannot verify the audio — fail closed, never allow.
+  if (isStubMode()) {
+    throw new Error("transcription unavailable (stub mode)");
+  }
 
   const file = await toFile(audio, filename);
   const result = (await Promise.race([
@@ -44,5 +48,11 @@ export async function transcribeForModeration(
     ),
   ])) as { text?: string };
 
-  return typeof result.text === "string" ? result.text : "";
+  const text = typeof result.text === "string" ? result.text.trim() : "";
+  if (text.length === 0) {
+    // Silence / no discernible speech cannot be safety-checked → treat as a
+    // transcription failure so the message is quarantined, not delivered.
+    throw new Error("empty transcription");
+  }
+  return text;
 }

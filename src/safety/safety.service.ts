@@ -68,6 +68,7 @@ export async function reportUser(
   // before being written to Report.conversationLog so the at-rest encryption guarantee
   // is preserved for reported conversations.
   interface EncryptedLogMessage {
+    id: string;
     senderId: string;
     senderAlias: string;
     ciphertext: string;
@@ -101,6 +102,7 @@ export async function reportUser(
         }
         const re = encrypt(plaintext);
         return {
+          id: m.id,
           senderId: m.sender.id,
           senderAlias: m.sender.anonymousAlias,
           ciphertext: re.ciphertext,

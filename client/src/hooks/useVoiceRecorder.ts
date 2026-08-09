@@ -4,6 +4,22 @@ import { File } from "expo-file-system";
 
 const MAX_DURATION_MS = 60_000;
 const METERING_INTERVAL = 100; // sample every 100ms
+const MAX_WAVEFORM_SAMPLES = 600; // server hard limit
+
+/** Cap the waveform to the server limit, downsampling by max-in-bucket. */
+function capWaveform(samples: number[]): number[] {
+  if (samples.length <= MAX_WAVEFORM_SAMPLES) return samples;
+  const out: number[] = [];
+  const step = samples.length / MAX_WAVEFORM_SAMPLES;
+  for (let i = 0; i < MAX_WAVEFORM_SAMPLES; i++) {
+    let max = 0;
+    for (let j = Math.floor(i * step); j < Math.floor((i + 1) * step) && j < samples.length; j++) {
+      if (samples[j] > max) max = samples[j];
+    }
+    out.push(max);
+  }
+  return out;
+}
 
 export type StartResult = "started" | "denied" | "error";
 
@@ -154,7 +170,7 @@ export function useVoiceRecorder(): VoiceRecorderResult {
       uri = recording.getURI();
       if (!uri) return null;
       const base64 = await uriToBase64(uri);
-      return { base64, durationMs: Math.min(durationMs, MAX_DURATION_MS), waveform: finalWaveform };
+      return { base64, durationMs: Math.min(durationMs, MAX_DURATION_MS), waveform: capWaveform(finalWaveform) };
     } finally {
       // Always reset the audio mode and delete the raw source recording,
       // whether we succeeded, failed, or returned early.

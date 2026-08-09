@@ -20,37 +20,43 @@ function encVoice(overrides: Record<string, unknown> = {}) {
   return { conversationId: "conv-1", senderId: "reported", messageType: "voice", content: e.ciphertext, iv: e.iv, authTag: e.authTag, ...overrides };
 }
 
-describe("getReportedVoiceAudio", () => {
+describe("getReportedVoiceAudio (exact reported message only)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("decrypts audio for the exact reported message", async () => {
-    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedId: "reported", reportedMessageId: "msg-1" });
+  it("decrypts audio ONLY for the exact reported message", async () => {
+    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedMessageId: "msg-1" });
     (mockPrisma.message.findUnique as any).mockResolvedValue(encVoice());
     const r = await getReportedVoiceAudio("report-1", "msg-1");
     expect(r.base64Audio).toBe(AUDIO);
   });
 
-  it("allows a voice from the report's conversation + reported sender (fallback)", async () => {
-    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedId: "reported", reportedMessageId: null });
-    (mockPrisma.message.findUnique as any).mockResolvedValue(encVoice());
-    const r = await getReportedVoiceAudio("report-1", "msg-2");
-    expect(r.base64Audio).toBe(AUDIO);
+  it("refuses another voice note by the same sender (not the exact reported one)", async () => {
+    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedMessageId: "msg-1" });
+    // messageId differs from reportedMessageId → refused without touching the message
+    await expect(getReportedVoiceAudio("report-1", "msg-2")).rejects.toThrow(/not found/i);
+    expect(mockPrisma.message.findUnique).not.toHaveBeenCalled();
   });
 
-  it("refuses a message from a different conversation (not browsable)", async () => {
-    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedId: "reported", reportedMessageId: null });
+  it("refuses a conversation/user-level report with no exact reportedMessageId", async () => {
+    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedMessageId: null });
+    await expect(getReportedVoiceAudio("report-1", "msg-1")).rejects.toThrow(/not found/i);
+    expect(mockPrisma.message.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the exact message is in another conversation", async () => {
+    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedMessageId: "msg-1" });
     (mockPrisma.message.findUnique as any).mockResolvedValue(encVoice({ conversationId: "other" }));
-    await expect(getReportedVoiceAudio("report-1", "msg-3")).rejects.toThrow(/not part of the report/i);
+    await expect(getReportedVoiceAudio("report-1", "msg-1")).rejects.toThrow(/not found/i);
   });
 
-  it("refuses a non-voice message", async () => {
-    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedId: "reported", reportedMessageId: "msg-1" });
+  it("refuses a non-voice exact message", async () => {
+    (mockPrisma.report.findUnique as any).mockResolvedValue({ conversationId: "conv-1", reportedMessageId: "msg-1" });
     (mockPrisma.message.findUnique as any).mockResolvedValue(encVoice({ messageType: "text" }));
     await expect(getReportedVoiceAudio("report-1", "msg-1")).rejects.toThrow(/not found/i);
   });
 
-  it("refuses when the report does not exist", async () => {
+  it("uses a uniform not-found error (never reveals unrelated audio exists)", async () => {
     (mockPrisma.report.findUnique as any).mockResolvedValue(null);
-    await expect(getReportedVoiceAudio("ghost", "msg-1")).rejects.toThrow(/Report not found/i);
+    await expect(getReportedVoiceAudio("ghost", "msg-1")).rejects.toThrow(/not found/i);
   });
 });

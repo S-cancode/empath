@@ -17,6 +17,7 @@ import { useAuthStore } from "@/stores/auth.store";
 import { useConversationsStore } from "@/stores/conversations.store";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
+import { resolveVoiceAck, VOICE_SEND_TIMEOUT_MS } from "@/lib/voice-send";
 import { useMessages } from "@/hooks/queries/useMessages";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useReportUser } from "@/hooks/mutations/useReportUser";
@@ -154,13 +155,33 @@ export default function ChatScreen() {
   );
 
   const voiceSendingRef = React.useRef(false);
+
+  // Always release the send lock when leaving the screen or losing the socket,
+  // so a voice send can never stay stuck across navigation/disconnect.
+  useEffect(() => {
+    return () => { voiceSendingRef.current = false; };
+  }, []);
+  useEffect(() => {
+    if (!socket) return;
+    const onDisconnect = () => {
+      if (voiceSendingRef.current) {
+        voiceSendingRef.current = false;
+        setVoiceStatus("idle");
+      }
+    };
+    socket.on("disconnect", onDisconnect);
+    return () => { socket.off("disconnect", onDisconnect); };
+  }, [socket]);
+
   const handleSendVoice = useCallback(
     (voiceData: { audio: string; durationMs: number; waveform: number[] }) => {
       if (!socket || voiceSendingRef.current) return; // prevent duplicate sends
       voiceSendingRef.current = true;
       setVoiceStatus("processing");
 
-      socket.emit(
+      // .timeout() gives us an (err, res) ack: a timeout/transport error is
+      // treated as retryable, never as success.
+      socket.timeout(VOICE_SEND_TIMEOUT_MS).emit(
         "conversation:voice-note",
         {
           conversationId: conversationId!,
@@ -168,21 +189,21 @@ export default function ChatScreen() {
           durationMs: voiceData.durationMs,
           waveform: voiceData.waveform,
         },
-        (res) => {
+        (err: unknown, res: { status?: string; message?: string }) => {
           voiceSendingRef.current = false;
-          if (res?.status === "sent") {
+          const outcome = resolveVoiceAck(err, res);
+          if (outcome.state === "sent") {
             setVoiceStatus("sent");
-            // Server confirmed persistence — refetch deterministically (no timer).
             queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
             queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-          } else if (res?.status === "retry") {
-            setVoiceStatus("idle");
-            Alert.alert("Couldn't send just now", res.message ?? "Please try sending the voice note again.");
           } else {
             setVoiceStatus("idle");
-            Alert.alert("Voice note not sent", res?.message ?? "This voice note couldn't be sent.");
+            Alert.alert(
+              outcome.state === "retry" ? "Couldn't send just now" : "Voice note not sent",
+              outcome.message,
+            );
           }
-        }
+        },
       );
     },
     [socket, conversationId, queryClient]
