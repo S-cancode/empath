@@ -26,7 +26,7 @@ Items that cannot be completed in code. Each needs an owner, evidence, and an ex
 14. **Research/ethics classification** if applicable (peer mental-health support). Owner: Rohan.
 
 ## App Review access
-15. **Reviewer credentials + exact notes** — see `APP_REVIEW_NOTES.md` (Wave 5). A deterministic reviewer fixture + Sign in with Apple demo path. Owner: Shivan.
+15. **Reviewer credentials + exact notes** — the deterministic reviewer path is IMPLEMENTED (server-gated `POST /review/demo-conversation`, off by default). Owner action to activate: (a) set `REVIEW_MODE=true` and `REVIEW_APPLE_SUBS=<reviewer Apple sub>` on the review backend; (b) build the client with `EXPO_PUBLIC_REVIEW_MODE=true`; (c) enter the reviewer Apple ID + notes in App Store Connect (see `APP_REVIEW_NOTES.md`). The reviewer's Apple `sub` is obtained on their first sign-in to the review backend. Done when: allowlist configured and credentials in ASC.
 
 ---
 Residual code note: `ADMIN_SECRET` env var is now vestigial (moderator auth replaced it); safe to remove from Railway after confirming no other consumer.

@@ -27,6 +27,14 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   // Comma-separated Expo push tokens for founder escalation alerts
   FOUNDER_PUSH_TOKENS: z.string().optional(),
+  // Deterministic App Review path. OFF by default; only the allowlisted Apple
+  // subs below get the isolated scripted demo conversation. Never trust a
+  // client-provided reviewer flag.
+  REVIEW_MODE: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
+  REVIEW_APPLE_SUBS: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z
     .enum(["development", "production", "test"])

@@ -30,6 +30,22 @@ export default function AppLayout() {
     useConversationsStore.getState().loadNicknames();
   }, []);
 
+  // Review build only: idempotently provision the reviewer's scripted demo
+  // conversation, which then appears in the normal inbox. The server returns
+  // 404 for non-reviewers, so this is a no-op for everyone else.
+  useEffect(() => {
+    if (process.env.EXPO_PUBLIC_REVIEW_MODE !== "true") return;
+    let cancelled = false;
+    import("@/api/review.api").then(({ ensureReviewDemo }) =>
+      ensureReviewDemo().then((id) => {
+        if (!cancelled && id) {
+          queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+        }
+      }),
+    );
+    return () => { cancelled = true; };
+  }, []);
+
   // Check for OTA updates on launch
   useEffect(() => {
     async function checkForUpdates() {

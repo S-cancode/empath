@@ -18,9 +18,23 @@ Empath is an adults-only (18+) peer emotional-support app: users are matched by 
 9. **Archive/end** a conversation.
 10. **Account deletion** in Profile (right to erasure) — in-app, immediate.
 
-## Deterministic reviewer path (no live peer required)
-> Fixture status: a scripted reviewer conversation is provided via a seeded fixture account (see reviewer credentials submitted in App Store Connect, NOT in this repo). The fixture uses the same authorization/moderation/crisis code paths as production and is isolated from real users. A bot/script is never presented as a real peer — the scripted partner is clearly labelled.
-> If credentials are not yet attached to this build, contact the moderation/support address in App Store Connect and one will be provisioned.
+## Deterministic reviewer path (no live peer required) — IMPLEMENTED
+The reviewer does not need to wait for a real match. A scripted **demo conversation** is provisioned automatically for the allowlisted reviewer account and appears in the normal Inbox.
+
+**How it works (server-gated, secure):**
+- Disabled by default. Active only when the server runs with `REVIEW_MODE=true`.
+- Restricted to allowlisted reviewer Apple IDs via `REVIEW_APPLE_SUBS` (comma-separated Apple `sub` values) — the server checks the *persisted* Apple sub, never a client flag.
+- On launch, a review build (`EXPO_PUBLIC_REVIEW_MODE=true`) calls `POST /review/demo-conversation`. Non-reviewers get 404; the reviewer gets an isolated conversation with a demo peer aliased **"Demo Peer (scripted, not a real person)"**. Idempotent.
+- The demo peer never enters the real matching queue and is isolated from real users. Text/voice send, exact-message report, moderator playback, block, crisis, archive and account deletion all run through the **production** code paths.
+
+**Reviewer steps (~5 min):**
+1. Sign in with Apple; complete age (18+), Terms, and consent.
+2. Open the **Demo Peer** conversation in the Inbox (auto-created).
+3. Send a text message; send a voice note (observe it is transcribed + safety-checked before delivery).
+4. Long-press a message → **Report**; long-press the demo peer's voice note → Report (moderators can then play only that exact note).
+5. **Block** the demo peer; open **Profile** → structured match preferences visible on a new match; **Delete Account**.
+
+**Owner prerequisite (not committed):** set `REVIEW_MODE=true` and `REVIEW_APPLE_SUBS=<reviewer Apple sub>` on the review backend, build the client with `EXPO_PUBLIC_REVIEW_MODE=true`, and submit the reviewer Apple ID credentials in App Store Connect. See APP_STORE_EXTERNAL_BLOCKERS.md.
 
 ## Voice notes (safety model)
 - Recording requires: (1) accepting an in-app voice-privacy notice, then (2) granting microphone permission. Declining either leaves text chat fully usable.
