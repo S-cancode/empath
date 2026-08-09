@@ -40,4 +40,3 @@ CREATE INDEX "moderator_audit_logs_created_at_idx" ON "moderator_audit_logs"("cr
 
 -- AddForeignKey
 ALTER TABLE "moderator_audit_logs" ADD CONSTRAINT "moderator_audit_logs_moderator_id_fkey" FOREIGN KEY ("moderator_id") REFERENCES "moderators"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-

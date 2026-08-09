@@ -103,4 +103,3 @@ P1 (all fixed): crisis-after-authz (2d); report snapshot minimization + no-audio
 - Voice moderation depends on OpenAI transcription; Empath retains no transcript, but provider-side retention/ZDR is **externally unverified** until confirmed in writing (see external blockers). Do not claim the provider immediately deletes inputs.
 - Public privacy/support URLs are ASC/legal items (external blockers), not verifiable from code.
 - Prisma: `match_queue_entries` is externally managed (prisma.config.ts) — generated migrations must never drop `match_queue_embedding_idx` (guard test in `src/lib/migration-guard.test.ts`).
-

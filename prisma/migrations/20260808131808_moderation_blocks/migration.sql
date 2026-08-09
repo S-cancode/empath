@@ -14,4 +14,3 @@ CREATE INDEX "moderation_blocks_sender_id_idx" ON "moderation_blocks"("sender_id
 
 -- CreateIndex
 CREATE INDEX "moderation_blocks_created_at_idx" ON "moderation_blocks"("created_at");
-
