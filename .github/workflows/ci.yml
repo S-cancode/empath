@@ -26,8 +26,10 @@ jobs:
         run: npm ci
         working-directory: client
       - run: npm test
-      - name: Production dependency audit (informational until Phase 1 completes)
-        run: npm audit --omit=dev || true
+      # Real gate: backend production deps currently have 0 vulnerabilities, so
+      # any new high/critical fails CI (not merely informational).
+      - name: Production dependency audit (fails on high/critical)
+        run: npm audit --omit=dev --audit-level=high
 
   client:
     name: Client TypeScript + Expo checks
@@ -47,5 +49,10 @@ jobs:
       - run: npx expo-doctor
       - name: iOS JavaScript export
         run: npx expo export --platform ios --output-dir /tmp/empath-ios-ci
-      - name: Production dependency audit (informational until Phase 1 completes)
-        run: npm audit --omit=dev || true
+      # Real gate bounded to critical: the client's known moderate/high findings
+      # are all in Expo's build-time toolchain (@expo/prebuild-config →
+      # @expo/config*), fixable only by an Expo major upgrade we are not taking
+      # for audit numbers. There are 0 critical, so this fails only on a genuine
+      # new critical, while tolerating the documented build-time highs.
+      - name: Production dependency audit (fails on critical)
+        run: npm audit --omit=dev --audit-level=critical
