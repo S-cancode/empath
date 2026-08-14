@@ -52,6 +52,7 @@ export function MessageBubble({
         sentAt={sentAt}
         deliveryStatus={deliveryStatus}
         waveform={waveform}
+        onLongPress={onLongPress}
       />
     );
   }

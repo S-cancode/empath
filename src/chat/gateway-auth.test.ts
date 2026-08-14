@@ -26,6 +26,13 @@ vi.mock("../auth/auth.service.js", () => ({
   verifyAccessToken: vi.fn(),
 }));
 
+const mockCheckCompliance = vi.fn();
+const mockCheckComplianceCached = vi.fn();
+vi.mock("../compliance/compliance-gate.service.js", () => ({
+  checkUserCompliance: (...a: unknown[]) => mockCheckCompliance(...a),
+  checkUserComplianceCached: (...a: unknown[]) => mockCheckComplianceCached(...a),
+}));
+
 vi.mock("./chat.service.js", () => ({
   bufferMessage: vi.fn(),
   endLiveSession: vi.fn(),
@@ -114,7 +121,7 @@ describe("chat gateway handshake auth", () => {
   });
 
   it("rejects a banned user even with a valid token", async () => {
-    (mockFindUnique as any).mockResolvedValue({ banned: true, suspendedUntil: null });
+    mockCheckCompliance.mockResolvedValue({ ok: false, reason: "banned" });
     const middleware = getHandshakeMiddleware();
     const next = vi.fn();
     const socket = makeSocket("valid");
@@ -127,7 +134,7 @@ describe("chat gateway handshake auth", () => {
 
   it("rejects a currently-suspended user", async () => {
     const future = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    (mockFindUnique as any).mockResolvedValue({ banned: false, suspendedUntil: future });
+    mockCheckCompliance.mockResolvedValue({ ok: false, reason: "suspended", suspendedUntil: future });
     const middleware = getHandshakeMiddleware();
     const next = vi.fn();
 
@@ -136,9 +143,8 @@ describe("chat gateway handshake auth", () => {
     expect(next.mock.calls[0][0].message).toContain("Your account is suspended until");
   });
 
-  it("allows a user whose suspension has expired", async () => {
-    const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    (mockFindUnique as any).mockResolvedValue({ banned: false, suspendedUntil: past });
+  it("allows a user the compliance gate passes", async () => {
+    mockCheckCompliance.mockResolvedValue({ ok: true });
     const middleware = getHandshakeMiddleware();
     const next = vi.fn();
     const socket = makeSocket("valid");
@@ -151,7 +157,7 @@ describe("chat gateway handshake auth", () => {
   });
 
   it("allows a user in good standing", async () => {
-    (mockFindUnique as any).mockResolvedValue({ banned: false, suspendedUntil: null });
+    mockCheckCompliance.mockResolvedValue({ ok: true });
     const middleware = getHandshakeMiddleware();
     const next = vi.fn();
     const socket = makeSocket("valid");
@@ -162,13 +168,23 @@ describe("chat gateway handshake auth", () => {
     expect(socket.data.userId).toBe("user-1");
   });
 
-  it("fails closed when the ban lookup errors", async () => {
-    (mockFindUnique as any).mockRejectedValue(new Error("db down"));
+  it("fails closed when the compliance check cannot complete", async () => {
+    mockCheckCompliance.mockResolvedValue({ ok: false, reason: "check_failed" });
     const middleware = getHandshakeMiddleware();
     const next = vi.fn();
 
     await middleware(makeSocket("valid"), next);
 
     expect(next.mock.calls[0][0].message).toBe("Authentication check failed");
+  });
+
+  it("rejects a user with outdated terms with a routable compliance error", async () => {
+    mockCheckCompliance.mockResolvedValue({ ok: false, reason: "terms_outdated" });
+    const middleware = getHandshakeMiddleware();
+    const next = vi.fn();
+
+    await middleware(makeSocket("valid"), next);
+
+    expect(next.mock.calls[0][0].message).toBe("compliance_required:terms_outdated");
   });
 });

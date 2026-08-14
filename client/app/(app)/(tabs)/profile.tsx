@@ -12,6 +12,7 @@ import { TierCard } from "@/components/profile/TierCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { AppBackground } from "@/components/ui/AppBackground";
 import { withdrawConsent, deleteAccount } from "@/api/compliance.api";
+import { isReviewBuild } from "@/api/review.api";
 
 function SettingsRow({
   icon,
@@ -98,13 +99,13 @@ export default function ProfileScreen() {
                 {
                   text: "Delete",
                   style: "destructive",
-                  onPress: async (value) => {
+                  onPress: async (value?: string) => {
                     if (value?.trim().toUpperCase() !== "DELETE") {
                       Alert.alert("Cancelled", 'You must type "DELETE" to confirm.');
                       return;
                     }
                     try {
-                      await deleteAccount();
+                      const { appleRevocation } = await deleteAccount();
                       await AsyncStorage.multiRemove([
                         "name_chosen",
                         "age_confirmed",
@@ -113,7 +114,16 @@ export default function ProfileScreen() {
                         "onboarding_complete",
                       ]);
                       await logout();
-                      Alert.alert("Account Deleted", "Your account has been deleted.");
+                      // Only claim Apple access was revoked when it actually was.
+                      // Otherwise give accurate manual steps — never a false success.
+                      const needsManual =
+                        appleRevocation === "failed" || appleRevocation === "unavailable";
+                      Alert.alert(
+                        "Account Deleted",
+                        needsManual
+                          ? "Your account and data have been deleted. To also stop Sign in with Apple for Empath, open the Settings app → tap your name → Sign in with Apple → Empath → Stop Using Apple ID."
+                          : "Your account has been deleted."
+                      );
                       router.replace("/(auth)/onboarding");
                     } catch {
                       Alert.alert("Error", "Something went wrong. Please try again.");
@@ -173,6 +183,21 @@ export default function ProfileScreen() {
           <SectionSeparator />
           <SettingsRow icon="mail-outline" iconColor="#FF8E53" label="Complaints" onPress={handleComplaints} />
         </View>
+
+        {/* App Review only — never rendered in production builds. */}
+        {isReviewBuild && (
+          <>
+            <Text style={s.sectionHeader}>APP REVIEW</Text>
+            <View style={s.section}>
+              <SettingsRow
+                icon="key-outline"
+                iconColor={colors.primary}
+                label="App Review Access"
+                onPress={() => router.push("/(app)/review-access")}
+              />
+            </View>
+          </>
+        )}
 
         {/* Data & Account */}
         <Text style={s.sectionHeader}>DATA & ACCOUNT</Text>

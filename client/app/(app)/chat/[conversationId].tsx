@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { colors } from "@/theme/colors";
@@ -16,6 +17,7 @@ import { useAuthStore } from "@/stores/auth.store";
 import { useConversationsStore } from "@/stores/conversations.store";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
+import { resolveVoiceAck, VOICE_SEND_TIMEOUT_MS } from "@/lib/voice-send";
 import { useMessages } from "@/hooks/queries/useMessages";
 import { useSendMessage } from "@/hooks/mutations/useSendMessage";
 import { useReportUser } from "@/hooks/mutations/useReportUser";
@@ -77,6 +79,8 @@ export default function ChatScreen() {
   const reportMutation = useReportUser();
   const blockMutation = useBlockUser();
   const [reportVisible, setReportVisible] = useState(false);
+  const [reportedMessageId, setReportedMessageId] = useState<string | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "processing" | "sent">("idle");
   const clearUnread = useConversationsStore((s) => s.clearUnread);
   const setActiveConversation = useConversationsStore((s) => s.setActiveConversation);
   const optimisticMessages = useConversationsStore(
@@ -129,13 +133,16 @@ export default function ChatScreen() {
         )
     );
     return [
-      ...optimistic.map((om) => ({
+      ...optimistic.map((om): Message => ({
         id: om.id,
         senderId: om.senderId,
         content: om.content,
         sentAt: om.sentAt,
         deliveryStatus: "sent" as const,
-      })),
+        // Optimistic sends are always plain text; declaring the full Message
+        // shape keeps the merged list a single Message[] type.
+        messageType: "text" as const,
+      } satisfies Message)),
       ...serverMessages,
     ].sort(
       (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
@@ -147,19 +154,57 @@ export default function ChatScreen() {
     [sendMessage]
   );
 
+  const voiceSendingRef = React.useRef(false);
+
+  // Always release the send lock when leaving the screen or losing the socket,
+  // so a voice send can never stay stuck across navigation/disconnect.
+  useEffect(() => {
+    return () => { voiceSendingRef.current = false; };
+  }, []);
+  useEffect(() => {
+    if (!socket) return;
+    const onDisconnect = () => {
+      if (voiceSendingRef.current) {
+        voiceSendingRef.current = false;
+        setVoiceStatus("idle");
+      }
+    };
+    socket.on("disconnect", onDisconnect);
+    return () => { socket.off("disconnect", onDisconnect); };
+  }, [socket]);
+
   const handleSendVoice = useCallback(
     (voiceData: { audio: string; durationMs: number; waveform: number[] }) => {
-      socket?.emit("conversation:voice-note" as any, {
-        conversationId,
-        audio: voiceData.audio,
-        durationMs: voiceData.durationMs,
-        waveform: voiceData.waveform,
-      });
-      // Refetch messages to pick up the persisted voice note
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-      }, 800);
+      if (!socket || voiceSendingRef.current) return; // prevent duplicate sends
+      voiceSendingRef.current = true;
+      setVoiceStatus("processing");
+
+      // .timeout() gives us an (err, res) ack: a timeout/transport error is
+      // treated as retryable, never as success.
+      socket.timeout(VOICE_SEND_TIMEOUT_MS).emit(
+        "conversation:voice-note",
+        {
+          conversationId: conversationId!,
+          audio: voiceData.audio,
+          durationMs: voiceData.durationMs,
+          waveform: voiceData.waveform,
+        },
+        (err: unknown, res: { status?: string; message?: string }) => {
+          voiceSendingRef.current = false;
+          const outcome = resolveVoiceAck(err, res);
+          if (outcome.state === "sent") {
+            setVoiceStatus("sent");
+            queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+          } else {
+            setVoiceStatus("idle");
+            Alert.alert(
+              outcome.state === "retry" ? "Couldn't send just now" : "Voice note not sent",
+              outcome.message,
+            );
+          }
+        },
+      );
     },
     [socket, conversationId, queryClient]
   );
@@ -177,7 +222,7 @@ export default function ChatScreen() {
         },
         {
           text: "Save",
-          onPress: (value) => {
+          onPress: (value?: string) => {
             if (value?.trim()) setNickname(conversationId!, value.trim());
           },
         },
@@ -189,7 +234,7 @@ export default function ChatScreen() {
 
   const showActionSheet = () => {
     Alert.alert(displayName, undefined, [
-      { text: "Report User", onPress: () => setReportVisible(true) },
+      { text: "Report User", onPress: () => { setReportedMessageId(null); setReportVisible(true); } },
       {
         text: "Block User",
         style: "destructive",
@@ -207,10 +252,14 @@ export default function ChatScreen() {
         reportedUserId: conversation.partner.id,
         reason,
         details,
+        // Present when the report was started from a specific message
+        // (text or voice); lets moderators inspect the exact item.
+        reportedMessageId: reportedMessageId ?? undefined,
       },
       {
         onSuccess: () => {
           setReportVisible(false);
+          setReportedMessageId(null);
           Alert.alert(
             "Report Submitted",
             "Thank you. We have received your report and will review it within 24 hours. You will not be matched with this user again."
@@ -323,12 +372,12 @@ export default function ChatScreen() {
                     sentAt={item.sentAt}
                     isMine={item.senderId === userId}
                     deliveryStatus={item.deliveryStatus}
-                    messageType={item.messageType as "text" | "voice" | undefined}
+                    messageType={item.messageType}
                     voiceDurationMs={item.voiceDurationMs}
-                    waveform={item.waveform as number[] | undefined}
-                    originalContent={(item as Message).originalContent}
-                    translated={(item as Message).translated}
-                    sourceLanguage={(item as Message).sourceLanguage}
+                    waveform={item.waveform}
+                    originalContent={item.originalContent}
+                    translated={item.translated}
+                    sourceLanguage={item.sourceLanguage}
                     onLongPress={
                       item.senderId !== userId
                         ? () => {
@@ -336,7 +385,7 @@ export default function ChatScreen() {
                               "Message Options",
                               undefined,
                               [
-                                { text: "Report This Message", onPress: () => setReportVisible(true) },
+                                { text: "Report This Message", onPress: () => { setReportedMessageId(item.id); setReportVisible(true); } },
                                 { text: "Cancel", style: "cancel" },
                               ]
                             );
@@ -372,6 +421,13 @@ export default function ChatScreen() {
 
           {isTyping && <TypingIndicator />}
 
+          {voiceStatus === "processing" && (
+            <View style={styles.voiceStatusBar}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.voiceStatusText}>Checking and sending your voice note…</Text>
+            </View>
+          )}
+
           <ChatInput onSend={handleSend} onSendVoice={handleSendVoice} onTyping={emitTyping} />
 
           {crisisData && (
@@ -396,6 +452,17 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
+  voiceStatusBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  voiceStatusText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+  },
   container: {
     flex: 1,
   },

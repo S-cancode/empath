@@ -31,6 +31,7 @@ export async function reportUser(
   reportedId: string,
   reason: string,
   details?: string,
+  reportedMessageId?: string,
 ): Promise<{ id: string }> {
   if (!REPORT_REASONS.includes(reason as (typeof REPORT_REASONS)[number])) {
     throw new ValidationError("Invalid report reason");
@@ -50,11 +51,24 @@ export async function reportUser(
     throw new ValidationError("Reported user is not your conversation partner");
   }
 
+  // Exact-message report: the target message must belong to THIS conversation
+  // and be authored by the reported user — never another conversation or sender.
+  if (reportedMessageId) {
+    const target = await prisma.message.findUnique({
+      where: { id: reportedMessageId },
+      select: { conversationId: true, senderId: true },
+    });
+    if (!target || target.conversationId !== conversationId || target.senderId !== reportedId) {
+      throw new ValidationError("Reported message does not belong to this conversation partner");
+    }
+  }
+
   // Capture full conversation log for moderation review.
   // Each message's plaintext content is re-encrypted with the message-encryption key
   // before being written to Report.conversationLog so the at-rest encryption guarantee
   // is preserved for reported conversations.
   interface EncryptedLogMessage {
+    id: string;
     senderId: string;
     senderAlias: string;
     ciphertext: string;
@@ -88,6 +102,7 @@ export async function reportUser(
         }
         const re = encrypt(plaintext);
         return {
+          id: m.id,
           senderId: m.sender.id,
           senderAlias: m.sender.anonymousAlias,
           ciphertext: re.ciphertext,
@@ -117,6 +132,7 @@ export async function reportUser(
     data: {
       conversationId, reporterId, reportedId, reason, details,
       priority,
+      ...(reportedMessageId ? { reportedMessageId } : {}),
       ...(conversationLog
         ? { conversationLog: conversationLog as unknown as Prisma.InputJsonValue }
         : {}),
@@ -193,6 +209,33 @@ export async function blockUser(
       });
     }
   }
+}
+
+/**
+ * Remove ONLY the caller's own block of the other user. A block is
+ * directional: unblocking must never delete or neutralize the block the other
+ * person placed on the caller. A shared conversation is reactivated only if
+ * NEITHER direction (user- or device-level) blocks the pair any longer.
+ */
+export async function unblockUser(userId: string, blockedUserId: string): Promise<void> {
+  await prisma.blockedUser.deleteMany({
+    where: { userId, blockedUserId },
+  });
+
+  // Reactivate the shared conversation only if no block remains in either
+  // direction (isBlocked checks both user-level and device-level).
+  if (await isBlocked(userId, blockedUserId)) return;
+
+  await prisma.conversation.updateMany({
+    where: {
+      status: "blocked",
+      OR: [
+        { userAId: userId, userBId: blockedUserId },
+        { userAId: blockedUserId, userBId: userId },
+      ],
+    },
+    data: { status: "archived" },
+  });
 }
 
 export async function isBlocked(

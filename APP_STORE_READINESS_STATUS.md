@@ -1,0 +1,120 @@
+# App Store Readiness — Status
+
+Working branch: `app-store-readiness` (created from origin/main `7c67525b5b2b83274f2cb09d81b32f4262f79286`, verified 2026-08-05 via `git fetch origin --prune && git rev-parse origin/main`).
+Remote delta vs last audited SHA: **none** (origin/main == 7c67525).
+Stale `ui-overhaul` branch: present locally and on origin; untouched per working rules.
+Detailed remediation checklist file referenced in the master prompt (`.hermes/plans/...`) is **not present on this machine**; working from the master prompt directly.
+
+## Baseline (verified 2026-08-05, branch app-store-readiness @ 7c67525)
+
+### Root (backend)
+| Check | Command | Result |
+|---|---|---|
+| Install | `npm ci` | pass |
+| Tests | `npm test` | **153 passed (153)**, 18 files |
+| Build | `npm run build` (prisma generate && tsc) | pass |
+| Prod audit | `npm audit --omit=dev` | **14 vulnerabilities (1 low, 4 moderate, 9 high, 0 critical)** — headline: `ws` (uninitialized memory disclosure GHSA-58qx-3vcg-4xpx; DoS GHSA-96hv-2xvq-fx4p) via `socket.io-adapter` 2.5.2–2.5.6 |
+
+Note: master prompt recorded 19 root vulns incl. 1 critical at the same SHA; current clean-checkout audit shows 14 with 0 critical (advisory DB / lockfile state drift). Current numbers are authoritative.
+
+### Client (Expo)
+| Check | Command | Result |
+|---|---|---|
+| Install | `npm ci` | pass |
+| TypeScript | `npx tsc --noEmit` | **FAIL — 8 errors**: `profile.tsx:101` implicit any; `chat/[conversationId].tsx:92,96` `"push:active"`/`"push:inactive"` not in socket emit event union; `:180` implicit any; `:326-328` optimistic message type lacks `messageType`/`voiceDurationMs`/`waveform`; `useRegisterPushToken.ts:11` NotificationBehavior missing `shouldShowBanner`/`shouldShowList` |
+| Expo doctor | `npx expo-doctor` | **FAIL — 7 SDK 54 patch mismatches**: expo ~54.0.36 (54.0.33), expo-crypto ~15.0.9 (15.0.8), expo-file-system ~19.0.23 (19.0.21), expo-linking ~8.0.12 (8.0.11), expo-notifications ~0.32.17 (0.32.16), expo-router ~6.0.24 (6.0.23), expo-updates ~29.0.19 (29.0.16) |
+| Prod audit | `npm audit --omit=dev` | **31 vulnerabilities (1 low, 17 moderate, 11 high, 2 critical)** |
+| iOS export | `npx expo export --platform ios` | pass (11MB bundle + assets) |
+
+## Completed
+- [x] Remote verification, branch `app-store-readiness` created from verified SHA
+- [x] Baseline commands run and recorded (above)
+- [x] APP_STORE_READINESS_STATUS.md created
+- [x] CLAUDE.md rewritten from a full code survey at 7c67525 (modules, real endpoint/auth map, socket events with authz caveats, actual tier values, matching constants, workers, invariants, known blockers — stale claims removed)
+- [x] CI added (.github/workflows/ci.yml): backend build+test and client tsc/expo-doctor/iOS-export mandatory; prod audits informational until Phase 1 sets the zero-critical gate. Client job will be RED until Wave 1 fixes the 8 TS errors + 7 patch mismatches — intentional.
+- [x] Wave 0 milestone commit
+
+## Next exact action
+Wave 1 (Phase 1): fix the 8 client TS errors starting with typed push:active/push:inactive socket events (client/src/types/socket.ts + server contract), full Message type on optimistic sends, NotificationBehavior fields; then `npx expo install --check` for the 7 patch mismatches; then dependency audits.
+
+## Wave 1 — Technical health (completed 2026-08-05)
+- Client TypeScript: **8 → 0 errors.** `push:active`/`push:inactive` added to the typed ClientToServerEvents map (matching the existing server handlers — no casts); optimistic messages now constructed as full `Message` objects (`messageType: "text"`), removing the union casts in the chat render; `Alert.prompt` callbacks typed `(value?: string)`; NotificationBehavior gains `shouldShowBanner`/`shouldShowList` (both false — app suppresses foreground alerts by design).
+- Expo doctor: **7 patch mismatches → 18/18 checks pass** via `npx expo install --fix` (expo 54.0.36, expo-crypto 15.0.9, expo-file-system 19.0.23, expo-linking 8.0.12, expo-notifications 0.32.17, expo-router 6.0.24, expo-updates 29.0.19).
+- Dependency audits (prod): **root 14 (9 high) → 0**; **client 31 (2 critical, 11 high) → 15 (14 moderate, 1 high)** via `npm audit fix` (no --force, no majors).
+- **Accepted finding (documented per rule 7/Phase 1.7):** client `postcss` HIGH (XSS via unescaped `</style>`, GHSA chain via Expo toolchain). Reachability: build-time CSS tooling pulled by Expo's bundler chain; not exercised against untrusted CSS at runtime on device — app renders RN components, not remote CSS. Fix requires Expo SDK 57 major upgrade (`fixAvailable: expo@57`, semver-major) — out of scope mid-hardening. Compensating controls: no remote stylesheet ingestion; CSP-irrelevant native runtime. Owner: Shivan. Expiry: revisit at next Expo SDK upgrade or 2026-11-01, whichever first.
+- Regression after upgrades: backend tests + build pass, client tsc clean, iOS export pass.
+
+## Wave 2 — Persistent identity & canonical compliance (in progress)
+- **2a (d116431)**: Sign in with Apple server core. POST /auth/apple with JWKS verification (issuer/audience pinned), accounts keyed on Apple sub; device-account linking preserves enforcement history; banned refused at login; deleted never resurrected; anonymous auth forbidden in production; revokeUserSessions wired into ban/suspension. 13 TDD tests.
+- **2b (fca789e)**: Client Apple sign-in flow (official button, pseudonymity explainer, dev-only anonymous fallback); splash converted to session gate; expo-apple-authentication plugin + usesAppleSignIn entitlement. Owner enabled the capability on App ID com.shivandongha.empath.
+- **2c (this commit)**: Canonical compliance gate (`compliance-gate.service`) — deleted/banned/suspended/18+/DOB re-check/current canonical terms version/current canonical sensitive-data consent, versions from DB only (client input has no path in), fail-closed, 60s canonical cache + 30s per-user cache with invalidation. Applied: rewritten `requireCompliance` (REST), **/match/analyse now gated before any AI/Redis processing**, Socket.IO handshake, per-event guard on conversation:message / voice-note / livesession:message / match:accept (guard also disconnects). Revocation cascade on ban/suspension/consent-withdrawal/deletion: sessions revoked + matching eviction (queue + pending proposal with counterpart re-queue) + compliance cache invalidated + sockets disconnected; deletion also frees appleSub. Wiring regression tests pin requireCompliance on analyse + matching routers. 24 new tests (TDD, failures verified first); 190/190 passing.
+- **2d (this commit)**: Object/event authorization. New `src/chat/authz.ts` (participant/active/live-session assertions). **P0 fixed: `declineProposal` now rejects non-participants** (was: any authenticated user could cancel strangers' matches). Crisis detection reordered AFTER participant authorization on conversation:message and livesession:message. Participant guards added to message:read, livesession:invite (fixed neither-A-nor-B partner-derivation bug), livesession:accept, livesession:message (+session↔conversation match), livesession:extend, livesession:end; conversation:join refactored to the helper. AUTHORIZATION_MATRIX.md documents every event. 10 new negative/positive tests; 200/200 passing.
+- **Wave 2 COMPLETE.** Residual tracked for later waves: DELETE /safety/block bidirectional bug (Wave 3), admin shared secret (Wave 4).
+
+## Wave 3 — Safety invariants (COMPLETE)
+- **3a**: Pre-delivery content moderation (Apple 1.2). content-moderation.service (OpenAI omni-moderation + local heuristic, 4s timeout, fail-closed→quarantine); wired into sendAsyncMessage before persistence; blocked/quarantined never persist/notify/push; ModerationBlock table stores categories only (no content).
+- **3b**: Directional block fix — unblockUser removes only the caller's own block; reactivation requires NEITHER direction blocking.
+- **3c**: Neutral push — new_message shows "Empath / You have a new message" (was plaintext body, P0); plaintext removed from notification bus; match payloads routing-only; token not logged.
+- **3d**: Crisis privacy — crisis:detected to affected sender only, no keywords to peer; getCrisisResources country-aware + international fallback; User.crisisCountry + /settings/crisis-country.
+- **3e** (SUPERSEDED — voice was re-added with moderation; see the "Voice notes" section below): originally disabled voice for v1. Current state: voice is ENABLED with transcription-based pre-delivery moderation; expo-av + mic permission are present and accurate. Do not read this bullet as current.
+- 223/223 tests; client tsc clean; expo-doctor 18/18.
+
+## Wave 4 — Ops, privacy, free v1, structured matching (COMPLETE, code-side)
+- **4a**: Free single-tier v1. FREE tier gets all working features (no shown-but-locked); dead monetization UI removed (UpgradePrompt/SubTagSheet/LockIcon); TierCard neutralized.
+- **4b**: Individual moderator accountability. Moderator accounts (email+password(bcrypt)+TOTP), short-lived session JWT with tokenVersion revocation, moderatorAuth middleware (server-derived actor), append-only ModeratorAuditLog, dashboard login, create-moderator script. APP_STORE_EXTERNAL_BLOCKERS.md created for rotation/access-review/on-call + legal items.
+- **4c**: Server-verified translation consent (ConsentRecord gate on enabling auto-translate); privacy notice corrected (Sign in with Apple not "anonymous", pseudonymity to peers, limited/logged moderator-access disclosure; no E2E/"completely anonymous" claims).
+- **4d**: Structured matching hard filter. Versioned MatchProfile (intent/interactionStyle/wantsAdvice), enum validation rejected server-side at join, areCompatible() hard filter runs in candidate selection BEFORE scoring (incompatible contexts never pair regardless of similarity), non-sensitive match rationale. 19 new tests incl. "never pairs incompatible contexts at high similarity".
+- 252/252 tests; client + server tsc clean; expo-doctor 18/18.
+- **Remaining for 4d (product decision + client work, flagged):** capturing intent/interactionStyle from the user needs onboarding/prompt UI; backend enforces compatibility whenever the profile is present, but the client does not yet collect it. Also documented: hard filter runs in the candidate-evaluation loop (top-20) rather than the SQL WHERE — acceptable given matchContext is JSONB, full SQL pre-filter is a possible later optimization.
+
+## Voice notes — re-added WITH transcription-based moderation (branch fix/voice-note-app-review)
+Owner chose to keep voice notes in v1 with a real safety pipeline (not disabled, not raw). Supersedes the earlier "voice disabled" note.
+- **T2 validation**: server-side runtime validation (non-empty conversation, valid round-trippable base64, decoded-size cap, positive-integer duration ≤60s, waveform ≤600 samples finite in [0,1]) before any decode/transcribe/encrypt/persist.
+- **T3 pre-delivery moderation**: auth → compliance → rate → validate → participant → decode → **OpenAI whisper-1 transcription → existing moderateText(transcript) → discard transcript** → persist/broadcast if allowed. Fail-closed: transcription/moderation failure → quarantine (retryable). Blocked/quarantined voice never persists/broadcasts/notifies. Transcript never stored/returned/logged.
+- **T4 exact reporting**: `Report.reportedMessageId` relation; server verifies the reported message belongs to the conversation + reported sender; long-press report on voice bubbles.
+- **T5 moderator playback**: `GET /admin/reports/:id/voice/:messageId` — moderator session, message must belong to the report, decrypt on demand, `Cache-Control: no-store`, audited (`play_reported_voice`, no audio content), no audio in list JSON, unreported voice not browsable. Dashboard audio player.
+- **T6 consent/permission UX**: versioned voice-privacy notice before first mic request (names OpenAI/US, transcription, discard, moderator review); acceptance stored + recorded as ConsentRecord(voice_notes v1.0); decline keeps text usable; mic denial explained with Open Settings; accurate NSMicrophoneUsageDescription.
+- **T7 reliable send + cleanup**: Socket.IO ack (processing/sent/rejected/retry) replaces the 800ms refetch; duplicate sends prevented; try/finally always resets iOS audio mode + deletes the source recording; playback temp files deleted on finish/stop/error/unmount.
+- **CI**: fixed independently (client deps in backend job; TOTP ±1 window). Green.
+- Tests: 277 backend passing (voice validation/moderation/reporting/playback covered); client tsc clean; expo-doctor 18/18; iOS export passes.
+
+## Final release gates (branch fix/app-store-finalization, 2026-08-09)
+- Backend (clean `npm ci`): build OK; **299 tests pass** (37 files); `npm audit --omit=dev` **0 vulnerabilities**.
+- Client (clean `npm ci`): `tsc` clean; expo-doctor **18/18**; iOS export passes; `npm audit --omit=dev` **23 (0 critical)** — the documented Expo build-time toolchain highs (fix = Expo major; no `--force`).
+- Migration guard passes; no migration drops `match_queue_embedding_idx`; `git diff --check` clean.
+- Two independent reviews run: **security review cleared all areas (no P0/P1)**; **release-claim review** found stale docs only — all fixed (iPad/voice/test-count reconciliation, push disclosure, nickname-log redaction, dead Badge removed).
+
+## Phase plan (agreed with owner)
+Wave 0: baseline/truth/CI (this) → Wave 1: technical health (8 TS errors, Expo patches, dep vulns) → Wave 2: persistent identity (SIWA pending owner decision), canonical compliance, authorization matrix → Wave 3: pre-delivery moderation, directional blocks, crisis privacy, neutral push, voice removal → Wave 4: moderator accountability, privacy/retention truth, free-v1 sweep, structured matching → Wave 5: reviewer fixture, EAS artifact inspection, device QA/TestFlight/soak.
+
+## Owner decisions — RESOLVED (previously open)
+1. Identity: **Sign in with Apple** (implemented, Wave 2). Public presence pseudonymous.
+2. Voice notes: **kept in v1 with transcription-based moderation** (fix/voice-note-app-review; Phase 1 finalization). Supersedes the earlier "voice disabled" decision.
+3. iPad: **dropped** — `supportsTablet: false` (iPhone-only v1).
+4. Moderator auth: **individual accounts + TOTP + audit log** (Wave 4b).
+
+## Original P0/P1 code blockers — ALL RESOLVED
+P0 (all fixed): requireCompliance on /match/analyse (Wave 2c); socket age/terms/consent at connect (2c); participant authorization matrix (2d); `match:decline` participant check (2d); directional block fix (Wave 3b); neutral push payloads (3c); pre-delivery text moderation (3a) **and voice moderation** (finalization P1).
+P1 (all fixed): crisis-after-authz (2d); report snapshot minimization + no-audio-in-JSON (finalization P1); individual moderator auth (4b); server-verified translation consent (4c); durable Apple identity (2a).
+
+## Release config (Phase 4 — verified)
+- iPhone-only (`supportsTablet: false`); bundle `com.shivandongha.empath` consistent with server `APPLE_BUNDLE_ID` and `usesAppleSignIn: true`.
+- `ITSAppUsesNonExemptEncryption: false` set — the app uses HTTPS + standard AES only; the owner must still answer the export-compliance question in App Store Connect (not a legal conclusion made here).
+- No IAP/upsell/tier-lock surfaces (Wave 4a; UpgradePrompt/SubTagSheet/LockIcon deleted).
+- Mic usage string accurately describes optional voice + transcription safety check.
+- Reviewer demo path implemented and server-gated (Phase 3).
+
+## Finalization round 2 (branch fix/app-store-finalization, 2026-08-14)
+- **Store-review EAS profile** (`store-review`): extends `production` → **store distribution** (not internal), production backend + Sentry, `EXPO_PUBLIC_REVIEW_MODE=true`, auto-increment. This — not the internal `preview`/`review` profiles — is the artifact to submit. Guarded by `src/review/eas-config.test.ts` (asserts not-internal, prod API URL, review mode on, and **no review secret in any EXPO_PUBLIC_* var / eas.json**).
+- **Non-circular reviewer access**: reviewer signs in with their own Apple ID, then redeems a server-only `REVIEW_ACCESS_CODE` (`POST /review/redeem`; constant-time compare, rate-limited, generic failure, disabled unless `REVIEW_MODE`) → durable `ReviewGrant`. No pre-known Apple sub required. Client "App Review Access" UI appears only in review builds.
+- **Fixture hardening**: seeds a real playable incoming **voice note** from the demo peer (reportable as the exact message; moderator can decrypt-and-play only that note; seeded content does NOT go through transcription/moderation and docs say so). Provisioning returns an existing demo conversation in **any** status (active/archived/blocked) so relaunch after report/block can't route around it. Concurrency-safe via unique `conversations.review_key` + create-or-catch in a transaction; demo peer via upsert on unique deviceId.
+- **Sign in with Apple deletion (Apple TN3194)**: client sends `authorizationCode`; server exchanges it for an Apple refresh token, encrypted at rest (`users.apple_refresh_token_*`). Account deletion revokes Apple tokens first (explicit ordering), then erases locally regardless of Apple availability, and returns a **truthful** outcome (`revoked`/`failed`/`unavailable`/`not_applicable`); the app shows manual-revocation guidance when not revoked — never a false success. Tokens/codes never logged.
+- **Privacy truth**: in-app Privacy Notice + APP_REVIEW_NOTES + external blockers corrected — **every outgoing text message is sent to OpenAI moderation before delivery** (not "only when auto-translate"). Contact reconciled to `help@empathapp.co.uk` (removed the unverified `empath.app` address). `.env.example` no longer advertises the (now boot-blocked) OpenRouter reroute. Public site copy in `PUBLIC_PRIVACY_POLICY.md` — live-site update is a manual external action.
+- Migration `20260814120000_review_access_grant_apple_token` (review_grants, conversations.review_key unique, users apple_refresh_token_*); no hnsw index drop.
+- New/updated tests: review (16), apple-tokens (10), apple-deletion (5), eas-config (6).
+
+## Risks / notes
+- Apple Guideline 1.2 remains a residual review risk regardless of implementation quality. No approval is promised.
+- Voice moderation depends on OpenAI transcription; Empath retains no transcript, but provider-side retention/ZDR is **externally unverified** until confirmed in writing (see external blockers). Do not claim the provider immediately deletes inputs.
+- Public privacy/support URLs are ASC/legal items (external blockers), not verifiable from code.
+- Prisma: `match_queue_entries` is externally managed (prisma.config.ts) — generated migrations must never drop `match_queue_embedding_idx` (guard test in `src/lib/migration-guard.test.ts`).

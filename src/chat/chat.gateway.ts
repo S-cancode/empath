@@ -2,13 +2,20 @@ import type { Server, Socket } from "socket.io";
 import { verifyAccessToken } from "../auth/auth.service.js";
 import { bufferMessage, endLiveSession, extendLiveSession, startLiveSession } from "./chat.service.js";
 import { sendAsyncMessage, sendVoiceNote, markDelivered, markRead } from "../conversation/conversation.service.js";
+import { moderateText } from "../safety/content-moderation.service.js";
 import { setOnline, setOffline, isOnline, getPartnerIdsForUser } from "../presence/presence.service.js";
 import { emitNotification, notificationBus } from "../notifications/notification.service.js";
 import type { NotificationEvent } from "../notifications/notification.service.js";
 import { setActiveConversation } from "../notifications/push.service.js";
 import { detectCrisis } from "../safety/crisis.detector.js";
-import { crisisResources } from "../safety/crisis.resources.js";
+import { getCrisisResources } from "../safety/crisis.resources.js";
 import { recordCrisisEvent } from "../safety/crisis.service.js";
+import { checkUserCompliance, checkUserComplianceCached } from "../compliance/compliance-gate.service.js";
+import {
+  assertConversationParticipant,
+  assertActiveConversationParticipant,
+  assertLiveSessionParticipant,
+} from "./authz.js";
 import { acceptProposal, declineProposal } from "../matching/matching.service.js";
 import { redis } from "../lib/redis.js";
 import { getTierLimits } from "../config/tiers.js";
@@ -132,17 +139,17 @@ async function handleCrisisDetection(
   }
   crisisAlertsSent.get(key)!.add(conversationId);
 
-  // Emit to BOTH users in the conversation (spec recommends showing to both)
-  const room = liveSessionId
-    ? `livesession:${liveSessionId}`
-    : `conversation:${conversationId}`;
-  io.to(room).emit("crisis:detected", {
-    resources: crisisResources,
-    keywords: crisisResult.matchedKeywords,
+  // Country-aware resources for the affected user (international fallback when
+  // unknown). Shown ONLY to the affected sender — the matched keywords reveal
+  // what they said and must never be disclosed to the peer.
+  const affected = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { crisisCountry: true },
   });
-  // Also emit directly to sender in case they haven't joined the room yet
+  const resources = getCrisisResources(affected?.crisisCountry ?? null);
+
   socket.emit("crisis:detected", {
-    resources: crisisResources,
+    resources,
     keywords: crisisResult.matchedKeywords,
   });
 
@@ -152,11 +159,26 @@ async function handleCrisisDetection(
       conversationId,
       liveSessionId: liveSessionId ?? null,
       triggerKeywords: crisisResult.matchedKeywords,
-      resourcesShown: crisisResources.map((r) => r.name),
+      resourcesShown: resources.map((r) => r.name),
     });
   } catch (err) {
     console.error("Failed to log crisis event:", err);
   }
+}
+
+/**
+ * Per-event compliance guard for content-producing socket events. Uses the
+ * short-TTL cached check; enforcement/withdrawal invalidate that cache and
+ * disconnect sockets, so this is a second lock on the same door.
+ */
+async function socketCompliant(socket: Socket, userId: string): Promise<boolean> {
+  const result = await checkUserComplianceCached(userId);
+  if (!result.ok) {
+    socket.emit("error", { message: "Account compliance required" });
+    socket.disconnect(true);
+    return false;
+  }
+  return true;
 }
 
 export function setupChatGateway(io: Server): void {
@@ -172,25 +194,25 @@ export function setupChatGateway(io: Server): void {
       return next(new Error("Invalid token"));
     }
 
-    // A banned/suspended user may still hold a valid access token, so the JWT
-    // check alone is not enough — mirror the REST authMiddleware ban check here.
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: payload.userId },
-        select: { banned: true, suspendedUntil: true },
-      });
-      if (user?.banned) {
+    // A valid JWT is not enough: the account must also satisfy the canonical
+    // compliance gate (not deleted/banned/suspended, 18+, current terms and
+    // sensitive-data consent). Fail closed on any doubt.
+    const compliance = await checkUserCompliance(payload.userId);
+    if (!compliance.ok) {
+      if (compliance.reason === "banned") {
         return next(new Error("Your account has been permanently banned"));
       }
-      if (user?.suspendedUntil && user.suspendedUntil > new Date()) {
+      if (compliance.reason === "suspended" && compliance.suspendedUntil) {
         return next(
           new Error(
-            `Your account is suspended until ${user.suspendedUntil.toISOString().split("T")[0]}`,
+            `Your account is suspended until ${compliance.suspendedUntil.toISOString().split("T")[0]}`,
           ),
         );
       }
-    } catch {
-      return next(new Error("Authentication check failed"));
+      if (compliance.reason === "check_failed") {
+        return next(new Error("Authentication check failed"));
+      }
+      return next(new Error(`compliance_required:${compliance.reason}`));
     }
 
     socket.data.userId = payload.userId;
@@ -268,13 +290,10 @@ export function setupChatGateway(io: Server): void {
     // --- Conversation events (async messaging) ---
 
     socket.on("conversation:join", async (data: { conversationId: string }) => {
-      const conversation = await prisma.conversation.findUnique({ where: { id: data.conversationId } });
-      if (!conversation || conversation.status !== "active") {
+      try {
+        await assertActiveConversationParticipant(data.conversationId, userId);
+      } catch {
         socket.emit("error", { message: "Invalid or inactive conversation" });
-        return;
-      }
-      if (conversation.userAId !== userId && conversation.userBId !== userId) {
-        socket.emit("error", { message: "Not a participant" });
         return;
       }
 
@@ -283,6 +302,7 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("conversation:message", async (data: { conversationId: string; content: string }) => {
+      if (!(await socketCompliant(socket, userId))) return;
       if (!data.content || data.content.length > 5000) {
         socket.emit("error", { message: "Message must be between 1 and 5000 characters" });
         return;
@@ -293,6 +313,10 @@ export function setupChatGateway(io: Server): void {
       }
 
       try {
+        // Authorize BEFORE crisis detection or persistence: a non-participant
+        // must not be able to trigger crisis logging or writes on a thread.
+        await assertActiveConversationParticipant(data.conversationId, userId);
+
         await handleCrisisDetection(io, socket, userId, data.content, data.conversationId);
 
         const message = await sendAsyncMessage(data.conversationId, userId, data.content);
@@ -348,30 +372,30 @@ export function setupChatGateway(io: Server): void {
       }
     });
 
-    socket.on("conversation:voice-note", async (data: { conversationId: string; audio: string; durationMs: number; waveform?: number[] }) => {
-      // NOTE: crisis detection is keyword-based and runs on text only. Voice notes
-      // are not transcribed server-side, so they bypass detection. Safety relies on
-      // the recipient reporting flow for voice content. If server-side transcription
-      // is added (e.g. Whisper), feed the transcript into handleCrisisDetection here.
+    socket.on("conversation:voice-note", async (
+      data: { conversationId: string; audio: string; durationMs: number; waveform?: number[]; clientId?: string },
+      ack?: (result: { status: "sent" | "rejected" | "retry"; messageId?: string; message?: string }) => void,
+    ) => {
+      const reply = (r: { status: "sent" | "rejected" | "retry"; messageId?: string; message?: string }) => {
+        if (typeof ack === "function") ack(r);
+        else if (r.status !== "sent") socket.emit("error", { message: r.message ?? "Failed to send voice note" });
+      };
+
+      // Same gates as text, in order: compliance → rate → participant →
+      // validate → transcribe → moderate → persist (inside sendVoiceNote).
+      // Every branch acknowledges so the client never hangs (a disconnected
+      // socket is additionally covered by the client-side timeout).
+      if (!(await socketCompliant(socket, userId))) {
+        reply({ status: "rejected", message: "Your account can't send messages right now." });
+        return;
+      }
       if (!checkMessageRate(userId)) {
-        socket.emit("error", { message: "Rate limit exceeded" });
+        reply({ status: "retry", message: "You're sending too fast — try again in a moment." });
         return;
       }
-
-      // Validate payload size (~2MB max for 60s compressed audio)
-      if (!data.audio || data.audio.length > 2_000_000) {
-        socket.emit("error", { message: "Voice note too large (max 60s)" });
-        return;
-      }
-
-      if (!data.durationMs || data.durationMs > 61_000) {
-        socket.emit("error", { message: "Voice note too long (max 60s)" });
-        return;
-      }
-
       try {
+        await assertActiveConversationParticipant(data.conversationId, userId);
         const message = await sendVoiceNote(data.conversationId, userId, data.audio, data.durationMs, data.waveform);
-
         socket.to(`conversation:${data.conversationId}`).emit("conversation:message", {
           conversationId: data.conversationId,
           messageId: message.id,
@@ -379,11 +403,15 @@ export function setupChatGateway(io: Server): void {
           content: data.audio,
           sentAt: message.sentAt.toISOString(),
           messageType: "voice",
-          voiceDurationMs: data.durationMs,
+          voiceDurationMs: message.voiceDurationMs ?? data.durationMs,
           waveform: data.waveform,
         });
+        reply({ status: "sent", messageId: message.id });
       } catch (err: any) {
-        socket.emit("error", { message: err.message ?? "Failed to send voice note" });
+        // Quarantine (safety provider unavailable) is retryable; everything
+        // else is a definite rejection with a neutral message.
+        const retryable = err?.code === "message_quarantined";
+        reply({ status: retryable ? "retry" : "rejected", message: err?.message ?? "Voice note couldn't be sent." });
       }
     });
 
@@ -392,6 +420,12 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("message:read", async (data: { conversationId: string; upToMessageId: string }) => {
+      try {
+        await assertConversationParticipant(data.conversationId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
       await markRead(data.conversationId, userId, data.upToMessageId);
       socket.to(`conversation:${data.conversationId}`).emit("message:read", {
         conversationId: data.conversationId,
@@ -403,13 +437,15 @@ export function setupChatGateway(io: Server): void {
     // --- Live session events ---
 
     socket.on("livesession:invite", async (data: { conversationId: string }) => {
-      const conversation = await prisma.conversation.findUnique({ where: { id: data.conversationId } });
-      if (!conversation || conversation.status !== "active") {
+      let partnerId: string;
+      try {
+        // Participant check first — otherwise a non-member would resolve to
+        // userAId as "partner" and could invite strangers into a session.
+        ({ partnerId } = await assertActiveConversationParticipant(data.conversationId, userId));
+      } catch {
         socket.emit("error", { message: "Invalid conversation" });
         return;
       }
-
-      const partnerId = conversation.userAId === userId ? conversation.userBId : conversation.userAId;
       if (!(await isOnline(partnerId))) {
         socket.emit("error", { message: "Partner is not online" });
         return;
@@ -434,6 +470,13 @@ export function setupChatGateway(io: Server): void {
       const invite = liveSessionInvites.get(data.conversationId);
       if (!invite || invite.inviterId === userId) {
         socket.emit("error", { message: "No pending invite" });
+        return;
+      }
+      // The accepter must be the other participant of this conversation.
+      try {
+        await assertActiveConversationParticipant(data.conversationId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
         return;
       }
 
@@ -494,6 +537,7 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("livesession:message", async (data: { liveSessionId: string; conversationId: string; content: string }) => {
+      if (!(await socketCompliant(socket, userId))) return;
       if (!data.content || data.content.length > 5000) {
         socket.emit("error", { message: "Message must be between 1 and 5000 characters" });
         return;
@@ -503,7 +547,30 @@ export function setupChatGateway(io: Server): void {
         return;
       }
 
+      // Authorize the session (and that it belongs to this conversation)
+      // before crisis detection or buffering.
+      try {
+        const session = await assertLiveSessionParticipant(data.liveSessionId, userId);
+        if (session.conversationId !== data.conversationId) {
+          socket.emit("error", { message: "Session/conversation mismatch" });
+          return;
+        }
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
+
       await handleCrisisDetection(io, socket, userId, data.content, data.conversationId, data.liveSessionId);
+
+      // Pre-delivery moderation applies to EVERY outgoing text message,
+      // including real-time live-session chat (Apple 1.2; matches the privacy
+      // disclosure). Fail-closed: a blocked/quarantined message is never
+      // buffered or emitted to the peer.
+      const moderation = await moderateText(data.content);
+      if (!moderation.allowed) {
+        socket.emit("error", { message: "Message not delivered" });
+        return;
+      }
 
       bufferMessage(data.conversationId, userId, data.content, data.liveSessionId);
 
@@ -523,6 +590,12 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("livesession:extend", async (data: { liveSessionId: string }) => {
+      try {
+        await assertLiveSessionParticipant(data.liveSessionId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
       const limits = getTierLimits(userTier);
 
       if (!limits.canExtendSession) {
@@ -554,6 +627,12 @@ export function setupChatGateway(io: Server): void {
     });
 
     socket.on("livesession:end", async (data: { liveSessionId: string }) => {
+      try {
+        await assertLiveSessionParticipant(data.liveSessionId, userId);
+      } catch {
+        socket.emit("error", { message: "Not a participant" });
+        return;
+      }
       await endLiveSession(data.liveSessionId);
       const timer = liveSessionTimers.get(data.liveSessionId);
       if (timer) {
@@ -579,6 +658,7 @@ export function setupChatGateway(io: Server): void {
     // --- Match proposal accept/decline ---
 
     socket.on("match:accept", async (data: { proposalId: string }) => {
+      if (!(await socketCompliant(socket, userId))) return;
       try {
         await acceptProposal(data.proposalId, userId);
         // match:confirmed is emitted to both users via the notification bus listener below

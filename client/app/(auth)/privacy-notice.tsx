@@ -27,13 +27,14 @@ export default function PrivacyNoticeScreen() {
           Empath is operated by Empath Ltd, registered at 47 Meadway, London,
           N14 6NJ.{"\n\n"}
           Data protection lead: Dr Rohan Choudhari.{"\n"}
-          Contact: privacy@empath.app
+          Contact: help@empathapp.co.uk
         </Text>
 
         <Text style={styles.sectionTitle} accessibilityRole="header">2. What Data We Collect</Text>
         <Text style={styles.body}>
-          {"\u2022"} Device identifiers (to create your anonymous account){"\n"}
-          {"\u2022"} Email address (optional, if you upgrade your account){"\n"}
+          {"\u2022"} Sign in with Apple identifier (to create and secure your account){"\n"}
+          {"\u2022"} Device identifiers (used for safety enforcement, e.g. blocks){"\n"}
+          {"\u2022"} Email address (from Apple; may be a private relay address you can hide from us){"\n"}
           {"\u2022"} Date of birth (to verify you are 18+){"\n"}
           {"\u2022"} Free-text prompts (analysed for matching, then deleted){"\n"}
           {"\u2022"} Anonymised matching data, including numerical representations of your text, topic categories, and match quality scores, used to improve matching accuracy{"\n"}
@@ -57,9 +58,11 @@ export default function PrivacyNoticeScreen() {
 
         <Text style={styles.sectionTitle} accessibilityRole="header">4. Who We Share It With</Text>
         <Text style={styles.body}>
-          {"\u2022"} Other users (your matched peer, in chat only){"\n"}
-          {"\u2022"} AI provider \u2014 OpenAI, servers in the United States (receives a version of your matching text with identifying details removed, for matching and safety analysis; and, only if you turn on auto-translate in Settings, the content of your chat messages for translation){"\n"}
+          {"\u2022"} Other users (your matched peer, in chat only \u2014 they see your nickname, never your name, email, or Apple ID){"\n"}
+          {"\u2022"} Our trained moderators, but only for a conversation you or your peer reports, or one preserved for a safety review (limited, logged access){"\n"}
+          {"\u2022"} AI provider \u2014 OpenAI, servers in the United States. We send: (a) a version of your matching text with identifying details removed, for matching analysis; (b) every chat message you send, to OpenAI's moderation service for a safety check before it is delivered to your peer; (c) the audio of any voice note you send, which is transcribed and the transcript safety-checked before delivery \u2014 the transcript is discarded after the check and never shown to anyone; and (d) only if you turn on auto-translate, the content of your chat messages for translation{"\n"}
           {"\u2022"} Hosting provider (for infrastructure){"\n"}
+          {"\u2022"} Push notification services (Apple/Expo) \u2014 only a neutral "new message" alert with no message content{"\n"}
           {"\u2022"} Law enforcement (if legally compelled)
         </Text>
 
@@ -69,6 +72,7 @@ export default function PrivacyNoticeScreen() {
           {"\u2022"} Anonymised matching data: Up to 180 days, then permanently deleted{"\n"}
           {"\u2022"} Chat messages: Encrypted at rest; automatically deleted after 7 days; messages related to an active report, or preserved for safeguarding or moderation review, are retained for as long as that purpose requires; deleted immediately on account deletion{"\n"}
           {"\u2022"} Translated message text (auto-translate users only): Cached in encrypted form for up to 24 hours, then deleted{"\n"}
+          {"\u2022"} Voice notes: Encrypted at rest and handled like other chat messages (7-day deletion, retained while reported or under safety review). The temporary transcript used for the safety check is discarded immediately and never stored{"\n"}
           {"\u2022"} Crisis signposting logs: 12 months, then deleted{"\n"}
           {"\u2022"} Account data: Retained until account deletion{"\n"}
           {"\u2022"} Device identifiers and IP addresses: Retained for the lifetime of the account; deleted within 30 days of account deletion{"\n"}
@@ -85,11 +89,13 @@ export default function PrivacyNoticeScreen() {
 
         <Text style={styles.sectionTitle} accessibilityRole="header">6. International Transfers</Text>
         <Text style={styles.body}>
-          To analyse your text for matching and safety purposes, we send a
-          pre-processed version (with identifying details removed) to our AI
-          provider, whose servers are located in the United States. This
-          transfer is protected by Standard Contractual Clauses. All other data
-          is processed and stored within the United Kingdom.
+          Some processing happens at our AI provider (OpenAI), whose servers are
+          in the United States: an identity-stripped version of your matching
+          text (for matching), the full content of each chat message (for the
+          pre-delivery safety check), and voice-note audio (transcribed for that
+          check, then discarded). These transfers are protected by Standard
+          Contractual Clauses. All other data is processed and stored within the
+          United Kingdom.
         </Text>
 
         <Text style={styles.sectionTitle} accessibilityRole="header">7. Your Rights</Text>

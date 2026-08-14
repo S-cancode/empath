@@ -13,9 +13,10 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.shivandongha.empath",
       "buildNumber": "13",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -37,11 +38,12 @@
       "expo-secure-store",
       "expo-notifications",
       "expo-updates",
+      "expo-apple-authentication",
       "@sentry/react-native",
       [
         "expo-av",
         {
-          "microphonePermission": "Empath uses your microphone to record voice notes you choose to send in conversations."
+          "microphonePermission": "Empath uses your microphone to record voice notes you choose to send. Voice notes are transcribed and safety-checked before delivery; you can use text chat without enabling voice."
         }
       ]
     ],

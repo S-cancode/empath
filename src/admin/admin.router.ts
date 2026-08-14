@@ -2,32 +2,50 @@ import { Router } from "express";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { adminAuth } from "./admin.middleware.js";
-import { getReports, getReportDetail, takeAction, resolveEscalation, getDashboardStats } from "./admin.service.js";
+import { moderatorAuth } from "./admin.middleware.js";
+import { moderatorLogin, auditModeratorAction } from "./moderator.service.js";
+import { getReports, getReportDetail, takeAction, resolveEscalation, getDashboardStats, getReportedVoiceAudio } from "./admin.service.js";
 import { redis } from "../lib/redis.js";
+import { authLimiter } from "../shared/rate-limiter.js";
 import { ValidationError } from "../shared/errors.js";
 import type { Request, Response, NextFunction } from "express";
 
+// Actor is derived server-side from the session — never trusted from the body.
 const takeActionSchema = z.object({
   action: z.enum(["dismiss", "warn", "suspend", "ban", "escalate"]),
   reason: z.string().max(1000).optional(),
-  moderatorId: z.string().min(1).optional(),
   severity: z.enum(["low", "medium", "high"]).optional(),
   duration: z.number().int().positive().optional(),
 });
 
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  totp: z.string().min(6).max(8),
+});
+
 export const adminRouter = Router();
 
-// The dashboard HTML shell is public: it contains no data, and a browser
-// navigation cannot send the Authorization header. The page prompts for the
-// admin secret and sends it as a Bearer token to the data endpoints below,
-// which all sit behind adminAuth.
+// The dashboard HTML shell is public: it contains no data. Data endpoints
+// below require an individual moderator session (email+password+TOTP login).
 adminRouter.get("/", (_req: Request, res: Response) => {
   const html = readFileSync(join(__dirname, "dashboard.html"), "utf-8");
   res.type("html").send(html);
 });
 
-adminRouter.use(adminAuth);
+adminRouter.post("/login", authLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) throw new ValidationError("Invalid login payload");
+    const ip = req.ip;
+    const result = await moderatorLogin(parsed.data.email, parsed.data.password, parsed.data.totp, ip);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.use(moderatorAuth);
 
 // List reports
 adminRouter.get("/reports", async (req: Request, res: Response) => {
@@ -42,6 +60,11 @@ adminRouter.get("/reports", async (req: Request, res: Response) => {
 // Report detail
 adminRouter.get("/reports/:id", async (req: Request, res: Response) => {
   const result = await getReportDetail(req.params.id as string);
+  await auditModeratorAction(req.moderator!.moderatorId, "view_report", {
+    targetType: "report",
+    targetId: req.params.id as string,
+    ip: req.ip,
+  });
   res.json(result);
 });
 
@@ -52,8 +75,15 @@ adminRouter.post("/reports/:id/action", async (req: Request, res: Response, next
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues[0].message);
     }
-    const { action, reason, duration, moderatorId, severity } = parsed.data;
-    const result = await takeAction(req.params.id as string, moderatorId || "admin", { action, severity, reason, duration });
+    const { action, reason, duration, severity } = parsed.data;
+    const moderatorId = req.moderator!.moderatorId;
+    const result = await takeAction(req.params.id as string, moderatorId, { action, severity, reason, duration });
+    await auditModeratorAction(moderatorId, "take_action", {
+      targetType: "report",
+      targetId: req.params.id as string,
+      detail: action,
+      ip: req.ip,
+    });
     res.json(result);
   } catch (err) {
     next(err);
@@ -63,7 +93,6 @@ adminRouter.post("/reports/:id/action", async (req: Request, res: Response, next
 const resolveEscalationSchema = z.object({
   outcome: z.string().min(1).max(1000),
   liftSuspension: z.boolean().optional().default(false),
-  moderatorId: z.string().min(1).optional(),
 });
 
 // Resolve an escalated report (founder review outcome)
@@ -73,9 +102,35 @@ adminRouter.post("/reports/:id/escalation/resolve", async (req: Request, res: Re
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues[0].message);
     }
-    const { outcome, liftSuspension, moderatorId } = parsed.data;
-    const result = await resolveEscalation(req.params.id as string, moderatorId || "admin", outcome, liftSuspension);
+    const { outcome, liftSuspension } = parsed.data;
+    const moderatorId = req.moderator!.moderatorId;
+    const result = await resolveEscalation(req.params.id as string, moderatorId, outcome, liftSuspension);
+    await auditModeratorAction(moderatorId, "resolve_escalation", {
+      targetType: "report",
+      targetId: req.params.id as string,
+      ip: req.ip,
+    });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Secure moderator playback of a reported voice note. Audio is decrypted on
+// demand, never cached, never in list JSON, and the access is audited.
+adminRouter.get("/reports/:id/voice/:messageId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id, messageId } = req.params as { id: string; messageId: string };
+    const { base64Audio } = await getReportedVoiceAudio(id, messageId);
+    await auditModeratorAction(req.moderator!.moderatorId, "play_reported_voice", {
+      targetType: "message",
+      targetId: messageId,
+      detail: `report:${id}`,
+      ip: req.ip,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Type", "audio/mp4");
+    res.send(Buffer.from(base64Audio, "base64"));
   } catch (err) {
     next(err);
   }

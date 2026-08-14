@@ -117,25 +117,40 @@
 
 <script>
 (function() {
-  // Admin secret is kept in sessionStorage and sent as a Bearer header —
-  // never in the URL, so it stays out of server logs and browser history.
-  let token = sessionStorage.getItem('empath_admin_secret') || '';
+  // Individual moderator session token (short-lived, from email+password+TOTP
+  // login). Kept in sessionStorage; sent as a Bearer header, never in the URL.
+  let token = sessionStorage.getItem('empath_mod_session') || '';
   const baseUrl = location.pathname.replace(/\/$/, '');
   let currentStatus = '';
   let currentPage = 1;
 
-  function ensureToken() {
-    if (!token) {
-      const entered = prompt('Admin secret:');
-      if (!entered) return false;
-      token = entered.trim();
-      sessionStorage.setItem('empath_admin_secret', token);
+  async function ensureToken() {
+    if (token) return true;
+    const email = prompt('Moderator email:');
+    if (!email) return false;
+    const password = prompt('Password:');
+    if (!password) return false;
+    const totp = prompt('Authenticator code:');
+    if (!totp) return false;
+    try {
+      const r = await fetch(baseUrl + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password, totp: totp.trim() }),
+      });
+      if (!r.ok) { alert('Login failed. Check your credentials and code.'); return false; }
+      const data = await r.json();
+      token = data.token;
+      sessionStorage.setItem('empath_mod_session', token);
+      return true;
+    } catch (err) {
+      alert('Login failed. Try again.');
+      return false;
     }
-    return true;
   }
 
-  function api(path, opts = {}) {
-    if (!ensureToken()) return Promise.resolve({});
+  async function api(path, opts = {}) {
+    if (!(await ensureToken())) return {};
     return fetch(baseUrl + path, {
       ...opts,
       headers: {
@@ -145,9 +160,9 @@
       },
     }).then(r => {
       if (r.status === 401) {
-        sessionStorage.removeItem('empath_admin_secret');
+        sessionStorage.removeItem('empath_mod_session');
         token = '';
-        alert('Invalid admin secret. Reload the page to try again.');
+        alert('Session expired. Reload the page to sign in again.');
         return {};
       }
       if (!r.ok) console.error('API error:', r.status, path);
@@ -275,8 +290,11 @@
       data.messages.forEach(m => {
         const isReported = m.senderId === r.reportedId;
         if (m.messageType === 'voice') {
+          const playBtn = m.id
+            ? '<button class="action-btn" style="margin-left:8px;background:#e3f2fd;color:#1565c0" onclick="window.__playVoice(\'' + r.id + '\',\'' + m.id + '\',this)">▶ Play (audited)</button>'
+            : '';
           html += '<div class="msg"><span class="sender" style="' + (isReported ? 'color:#c62828' : '') + '">' +
-            esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br><span class="voice-tag">[Voice note]</span></div>';
+            esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br><span class="voice-tag">[Voice note]</span>' + playBtn + '</div>';
         } else {
           html += '<div class="msg"><span class="sender" style="' + (isReported ? 'color:#c62828' : '') + '">' +
             esc(m.senderAlias) + '</span><span class="time">' + formatDate(m.sentAt) + '</span><br>' + esc(m.content) + '</div>';
@@ -347,21 +365,12 @@
     document.getElementById('detail-overlay').classList.remove('open');
   };
 
-  // Get moderator name on first action (cached per session)
-  let _modName = null;
-  function getModeratorId() {
-    if (!_modName) _modName = prompt('Your name (for audit trail):') || 'admin';
-    return _modName;
-  }
-
   window.__modAction = async function(id, action) {
     if (action === 'ban' && !confirm('Are you sure you want to permanently ban this user?')) return;
-    const reason = prompt('Reason for this action (optional):');
-    const moderatorId = getModeratorId();
-    const severity = document.getElementById('severity-select')?.value || null;
+    const reason = prompt('Reason for this action (optional):');    const severity = document.getElementById('severity-select')?.value || null;
     await api('/reports/' + id + '/action', {
       method: 'POST',
-      body: JSON.stringify({ action, reason, moderatorId, severity }),
+      body: JSON.stringify({ action, reason, severity }),
     });
     window.__modClose();
     loadReports();
@@ -376,26 +385,48 @@
     const days = parseInt(document.getElementById('suspend-days').value);
     const reason = document.getElementById('suspend-reason').value;
     if (!days || days < 1) { alert('Enter a valid number of days'); return; }
-    if (!confirm('Suspend this user for ' + days + ' days?')) return;
-    const moderatorId = getModeratorId();
-    await api('/reports/' + id + '/action', {
+    if (!confirm('Suspend this user for ' + days + ' days?')) return;    await api('/reports/' + id + '/action', {
       method: 'POST',
-      body: JSON.stringify({ action: 'suspend', reason, duration: days, moderatorId }),
+      body: JSON.stringify({ action: 'suspend', reason, duration: days }),
     });
     window.__modClose();
     loadReports();
     loadStats();
   };
 
+  // Play a reported voice note. Fetches decrypted audio with the moderator
+  // session (Bearer), plays it from an in-memory blob URL, and revokes the URL
+  // after. The access is audited server-side. No public/persistent URL.
+  window.__playVoice = async function(reportId, messageId, btn) {
+    if (!(await ensureToken())) return;
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+    try {
+      const r = await fetch(baseUrl + '/reports/' + reportId + '/voice/' + messageId, {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (!r.ok) { alert('Could not load audio (' + r.status + ').'); btn.textContent = '▶ Play (audited)'; btn.disabled = false; return; }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play();
+      btn.textContent = '▶ Play (audited)';
+      btn.disabled = false;
+    } catch (err) {
+      alert('Playback failed.');
+      btn.textContent = '▶ Play (audited)';
+      btn.disabled = false;
+    }
+  };
+
   window.__modResolveEscalation = async function(id) {
     const outcome = document.getElementById('escalation-outcome').value.trim();
     if (!outcome) { alert('Enter the review outcome'); return; }
     const lift = document.getElementById('lift-suspension').checked;
-    if (!confirm('Resolve this escalation?' + (lift ? ' The interim suspension will be lifted.' : ' The suspension will run its course.'))) return;
-    const moderatorId = getModeratorId();
-    await api('/reports/' + id + '/escalation/resolve', {
+    if (!confirm('Resolve this escalation?' + (lift ? ' The interim suspension will be lifted.' : ' The suspension will run its course.'))) return;    await api('/reports/' + id + '/escalation/resolve', {
       method: 'POST',
-      body: JSON.stringify({ outcome, liftSuspension: lift, moderatorId }),
+      body: JSON.stringify({ outcome, liftSuspension: lift }),
     });
     window.__modClose();
     loadReports();

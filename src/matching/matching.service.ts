@@ -4,6 +4,8 @@ import { prisma } from "../lib/prisma.js";
 import { emitNotification } from "../notifications/notification.service.js";
 import { getTierLimits } from "../config/tiers.js";
 import { isBlocked } from "../safety/safety.service.js";
+import { ForbiddenError } from "../shared/errors.js";
+import { areCompatible, profileFromContext } from "./compatibility.js";
 import type { MatchRequest, MatchResult } from "./matching.types.js";
 
 const GLOBAL_QUEUE_KEY = "match:queue:global";
@@ -90,6 +92,23 @@ export async function leaveQueue(userId: string, _category?: string): Promise<vo
       // Skip malformed entries; the sweeper will clean them.
     }
   }
+}
+
+/**
+ * Remove a user from all matching state: queue entry plus any pending
+ * proposal (declining it re-queues the counterpart so they aren't stranded).
+ * Called by enforcement (ban/suspension), consent withdrawal, and deletion.
+ */
+export async function evictFromMatching(userId: string): Promise<void> {
+  try {
+    const proposalId = await redis.get(`match:pending:${userId}`);
+    if (proposalId) {
+      await declineProposal(proposalId, userId);
+    }
+  } catch (err) {
+    console.error("[matching] proposal eviction failed:", err);
+  }
+  await leaveQueue(userId);
 }
 
 export async function getQueueSize(): Promise<number> {
@@ -235,6 +254,14 @@ export async function tryMatchAllPairs(): Promise<MatchResult[]> {
       const candidate = candidates[candidateIndex];
 
       if (await isBlocked(anchor.userId, candidate.userId)) continue;
+
+      // Hard compatibility filter BEFORE scoring: incompatible structured
+      // contexts (e.g. two pure seekers, or one_off vs ongoing) never pair,
+      // regardless of embedding similarity.
+      if (!areCompatible(
+        profileFromContext(anchor.matchContext),
+        profileFromContext(candidate.matchContext),
+      )) continue;
 
       const cosinePart = sim.similarity * 0.9;
       const waitMs = Date.now() - candidate.joinedAt;
@@ -448,6 +475,11 @@ export async function declineProposal(
   if (!raw) return;
 
   const proposal = JSON.parse(raw);
+  // Only a party to the proposal may decline it — otherwise any authenticated
+  // user could cancel strangers' matches by guessing/replaying a proposal id.
+  if (proposal.userAId !== userId && proposal.userBId !== userId) {
+    throw new ForbiddenError("Not a participant in this proposal");
+  }
   await redis.del(`match:proposal:${proposalId}`);
   await redis.del(`match:pending:${proposal.userAId}`);
   await redis.del(`match:pending:${proposal.userBId}`);

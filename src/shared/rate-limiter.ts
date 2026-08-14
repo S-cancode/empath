@@ -19,6 +19,17 @@ export const authLimiter = rateLimit({
   message: { error: "Too many auth requests, try again later" },
 });
 
+// Reviewer access-code redemption: strict, so a leaked/guessed code can't be
+// brute-forced. Keyed per-IP by express-rate-limit's default.
+export const reviewLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisStore("review"),
+  message: { error: "Too many attempts, try again later" },
+});
+
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,

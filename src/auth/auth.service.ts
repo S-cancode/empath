@@ -8,7 +8,7 @@ import type { JwtPayload, RefreshTokenPayload, SubscriptionTier } from "../share
 const ACCESS_TOKEN_EXPIRY = "15m";
 const REFRESH_TOKEN_EXPIRY = "7d";
 
-function hashDeviceId(deviceId: string): string {
+export function hashDeviceId(deviceId: string): string {
   return createHash("sha256").update(deviceId).digest("hex");
 }
 
@@ -27,7 +27,7 @@ const ALIAS_NOUNS = [
   "Lantern",
 ];
 
-function generateAlias(): string {
+export function generateAlias(): string {
   const adj = ALIAS_ADJECTIVES[Math.floor(Math.random() * ALIAS_ADJECTIVES.length)];
   const noun = ALIAS_NOUNS[Math.floor(Math.random() * ALIAS_NOUNS.length)];
   const num = randomBytes(2).readUInt16BE(0) % 10_000; // 0000..9999
@@ -48,6 +48,44 @@ export function verifyAccessToken(token: string): JwtPayload {
   } catch {
     throw new AuthError("Invalid or expired token");
   }
+}
+
+export function issueTokens(user: {
+  id: string;
+  subscriptionTier: string;
+  tokenVersion: number;
+}): { accessToken: string; refreshToken: string } {
+  return {
+    accessToken: signAccessToken({
+      userId: user.id,
+      tier: user.subscriptionTier as SubscriptionTier,
+    }),
+    refreshToken: signRefreshToken({
+      userId: user.id,
+      tokenVersion: user.tokenVersion,
+    }),
+  };
+}
+
+/**
+ * Kill every outstanding refresh token for a user (access tokens die within
+ * 15 minutes on their own). Called by enforcement on ban/suspension and by
+ * consent-withdrawal/deletion flows.
+ */
+export async function revokeUserSessions(userId: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { tokenVersion: { increment: 1 } },
+  });
+}
+
+/**
+ * Disposable anonymous accounts defeat durable enforcement, so they are
+ * dev/test-only. Production requires Sign in with Apple unless explicitly
+ * overridden via ALLOW_ANONYMOUS_AUTH=true.
+ */
+export function isAnonymousAuthAllowed(): boolean {
+  return config.NODE_ENV !== "production" || config.ALLOW_ANONYMOUS_AUTH === true;
 }
 
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
@@ -72,16 +110,7 @@ export async function createAnonymousUser(deviceId: string) {
     });
   }
 
-  const accessToken = signAccessToken({
-    userId: user.id,
-    tier: user.subscriptionTier as SubscriptionTier,
-  });
-  const refreshToken = signRefreshToken({
-    userId: user.id,
-    tokenVersion: user.tokenVersion,
-  });
-
-  return { accessToken, refreshToken, user: { id: user.id, alias: user.anonymousAlias } };
+  return { ...issueTokens(user), user: { id: user.id, alias: user.anonymousAlias } };
 }
 
 export async function refreshTokens(refreshToken: string) {

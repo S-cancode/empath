@@ -47,6 +47,18 @@ model User {
   id               String   @id @default(uuid())
   anonymousAlias   String   @map("anonymous_alias")
   deviceId         String   @map("device_id")
+  // Stable Apple user identifier (JWT `sub` from Sign in with Apple).
+  // The durable identity anchor: enforcement (bans, blocks, reports) must
+  // survive reinstalls, so it binds here, not to deviceId.
+  appleSub         String?  @unique @map("apple_sub")
+  // Apple refresh token (from authorization-code exchange), encrypted at rest
+  // with AES-256-GCM. Used to revoke Apple access on account deletion
+  // (Apple TN3194). Null for legacy accounts that signed in before the
+  // authorization-code exchange existed — deletion then falls back to manual
+  // revocation guidance. Never logged, never returned to a client.
+  appleRefreshTokenCipher  String? @map("apple_refresh_token_cipher")
+  appleRefreshTokenIv      String? @map("apple_refresh_token_iv")
+  appleRefreshTokenAuthTag String? @map("apple_refresh_token_auth_tag")
   email            String?
   subscriptionTier String   @default("free") @map("subscription_tier")
   tokenVersion     Int      @default(0) @map("token_version")
@@ -67,6 +79,9 @@ model User {
   // to the AI provider for translation). Never default this to true.
   autoTranslateEnabled Boolean   @default(false) @map("auto_translate_enabled")
   languageDetectedAt   DateTime? @map("language_detected_at")
+  // ISO-3166 alpha-2 for country-aware crisis resources; user-changeable.
+  // Null → international fallback resources.
+  crisisCountry        String?   @map("crisis_country")
 
   conversationsAsA   Conversation[]     @relation("ConversationUserA")
   conversationsAsB   Conversation[]     @relation("ConversationUserB")
@@ -80,6 +95,7 @@ model User {
   termsAcceptances   TermsAcceptance[]
   consentRecords     ConsentRecord[]
   complaints         Complaint[]
+  reviewGrant        ReviewGrant?
 
   @@unique([deviceId])
   @@map("users")
@@ -92,6 +108,13 @@ model Conversation {
   category      String
   subTag        String?   @map("sub_tag")
   status           String    @default("active")
+  // Set only on the App Review demo conversation, to the reviewer's user id.
+  // A UNIQUE constraint here is the concurrency anchor: provisioning does an
+  // atomic create-or-catch on this key, so concurrent relaunch requests can
+  // never race into two active demo relationships (and can never route around
+  // a persisted block/report by re-creating the fixture). Null for all real
+  // conversations.
+  reviewKey        String?   @unique @map("review_key")
   matchContext     Json?     @map("match_context")
   rawPromptCipher  String?   @map("raw_prompt_cipher")
   rawPromptIv      String?   @map("raw_prompt_iv")
@@ -115,6 +138,23 @@ model Conversation {
   @@index([userBId])
   @@index([status])
   @@map("conversations")
+}
+
+// A durable App Review access grant. Created when an authenticated user
+// redeems the reviewer access code (POST /review/redeem) while REVIEW_MODE is
+// on. Its existence — not a client flag, not a pre-known Apple sub — is what
+// makes ensureDemoConversation available, so Apple can gain the demo path with
+// their own Sign in with Apple account after entering the code from App Review
+// notes. `userId` is UNIQUE so redemption is idempotent and a reviewer keeps
+// access across relaunches without re-entering the code.
+model ReviewGrant {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  grantedAt DateTime @default(now()) @map("granted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("review_grants")
 }
 
 model LiveSession {
@@ -154,6 +194,7 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id])
   sender       User         @relation(fields: [senderId], references: [id])
   liveSession  LiveSession? @relation(fields: [liveSessionId], references: [id])
+  reports      Report[]     @relation("ReportedMessage")
 
   @@index([conversationId])
   @@index([conversationId, sentAt])
@@ -184,6 +225,7 @@ model Report {
   reportedId     String   @map("reported_id")
   reason                 String
   details                String?
+  reportedMessageId      String?  @map("reported_message_id")
   reportedMessageContent String?  @map("reported_message_content")
   conversationLog        Json?    @map("conversation_log")
   priority               String   @default("standard") // "highest" or "standard"
@@ -197,10 +239,12 @@ model Report {
   conversation      Conversation       @relation(fields: [conversationId], references: [id])
   reporter          User               @relation("ReportsSubmitted", fields: [reporterId], references: [id])
   reported          User               @relation("ReportsReceived", fields: [reportedId], references: [id])
+  reportedMessage   Message?           @relation("ReportedMessage", fields: [reportedMessageId], references: [id])
   moderationActions ModerationAction[]
 
   @@index([reportedId])
   @@index([status])
+  @@index([reportedMessageId])
   @@map("reports")
 }
 
@@ -314,6 +358,61 @@ model ModerationAction {
 
   @@index([reportId])
   @@map("moderation_actions")
+}
+
+/// Minimal metadata for a message rejected by pre-delivery moderation.
+/// Deliberately stores NO message content — only categories and actors — so
+/// the moderation trail can inform review/repeat-offender detection without
+/// creating a second copy of harmful content.
+model ModerationBlock {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  senderId       String   @map("sender_id")
+  categories     String[]
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("moderation_blocks")
+}
+
+/// Individual moderator account (replaces the shared ADMIN_SECRET).
+/// Auth = email + password (bcrypt) + TOTP. Sessions are short-lived JWTs.
+model Moderator {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  totpSecret   String    @map("totp_secret")
+  role         String    @default("moderator") // moderator | admin
+  active       Boolean   @default(true)
+  tokenVersion Int       @default(0) @map("token_version")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  auditLogs ModeratorAuditLog[]
+
+  @@map("moderators")
+}
+
+/// Append-only audit trail of moderator access and actions. No update/delete
+/// path exists in code — records are immutable once written.
+model ModeratorAuditLog {
+  id          String   @id @default(uuid())
+  moderatorId String   @map("moderator_id")
+  action      String   // login | login_failed | view_report | take_action | resolve_escalation | ...
+  targetType  String?  @map("target_type")
+  targetId    String?  @map("target_id")
+  detail      String?
+  ipCipher    String?  @map("ip_cipher")
+  ipIv        String?  @map("ip_iv")
+  ipAuthTag   String?  @map("ip_auth_tag")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  moderator Moderator @relation(fields: [moderatorId], references: [id])
+
+  @@index([moderatorId])
+  @@index([createdAt])
+  @@map("moderator_audit_logs")
 }
 
 model Complaint {

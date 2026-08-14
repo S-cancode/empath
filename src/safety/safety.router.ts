@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authMiddleware } from "../auth/auth.middleware.js";
 import { ValidationError } from "../shared/errors.js";
-import { reportUser, blockUser } from "./safety.service.js";
+import { reportUser, blockUser, unblockUser } from "./safety.service.js";
 import { prisma } from "../lib/prisma.js";
 
 const router = Router();
@@ -13,6 +13,7 @@ const reportSchema = z.object({
   reportedUserId: z.string().uuid(),
   reason: z.enum(["harassment", "self_harm_encouragement", "sexual_content", "spam_scam", "medical_advice", "illegal_content", "underage_user", "other"]),
   details: z.string().max(500).optional(),
+  reportedMessageId: z.string().uuid().optional(),
 });
 
 router.post("/report", async (req, res, next) => {
@@ -21,13 +22,14 @@ router.post("/report", async (req, res, next) => {
     if (!parsed.success) {
       throw new ValidationError("Invalid report payload");
     }
-    const { conversationId, reportedUserId, reason, details } = parsed.data;
+    const { conversationId, reportedUserId, reason, details, reportedMessageId } = parsed.data;
     const result = await reportUser(
       req.user!.userId,
       conversationId,
       reportedUserId,
       reason,
       details,
+      reportedMessageId,
     );
     res.status(201).json(result);
   } catch (err) {
@@ -72,28 +74,7 @@ router.get("/blocked", async (req, res, next) => {
 
 router.delete("/block/:blockedUserId", async (req, res, next) => {
   try {
-    const userId = req.user!.userId;
-    const blockedUserId = req.params.blockedUserId;
-    // Delete all block records between these two users (both directions)
-    await prisma.blockedUser.deleteMany({
-      where: {
-        OR: [
-          { userId, blockedUserId },
-          { userId: blockedUserId, blockedUserId: userId },
-        ],
-      },
-    });
-    // Reactivate any blocked conversations between these two users
-    await prisma.conversation.updateMany({
-      where: {
-        status: "blocked",
-        OR: [
-          { userAId: userId, userBId: blockedUserId },
-          { userAId: blockedUserId, userBId: userId },
-        ],
-      },
-      data: { status: "archived" },
-    });
+    await unblockUser(req.user!.userId, req.params.blockedUserId);
     res.json({ ok: true });
   } catch (err) {
     next(err);

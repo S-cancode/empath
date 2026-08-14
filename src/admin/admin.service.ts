@@ -101,6 +101,7 @@ export async function getReportDetail(reportId: string) {
   let messagesNote: string | undefined;
 
   interface StoredLogMessage {
+    id?: string;
     senderId: string;
     senderAlias: string;
     content?: string; // legacy plaintext
@@ -124,10 +125,13 @@ export async function getReportDetail(reportId: string) {
         // Backward-compat: older reports stored plaintext content
         content = m.content ?? "[missing]";
       }
+      // Voice snapshots store the placeholder "[voice note]" as their
+      // plaintext, so `content` here is never audio.
       return {
+        id: m.id,
         senderId: m.senderId,
         senderAlias: m.senderAlias,
-        content,
+        content: m.messageType === "voice" ? "[voice note]" : content,
         messageType: m.messageType,
         sentAt: m.sentAt,
       };
@@ -144,11 +148,18 @@ export async function getReportDetail(reportId: string) {
 
     if (liveMessages.length > 0) {
       messages = liveMessages.map((msg) => {
+        // Never decrypt voice content into JSON — that would put base64 audio
+        // in the report payload. Audio leaves only via the dedicated audited
+        // playback endpoint. Voice shows a placeholder here.
         let content: string;
-        try {
-          content = decrypt({ ciphertext: msg.content, iv: msg.iv, authTag: msg.authTag });
-        } catch {
-          content = "[unable to decrypt]";
+        if (msg.messageType === "voice") {
+          content = "[voice note]";
+        } else {
+          try {
+            content = decrypt({ ciphertext: msg.content, iv: msg.iv, authTag: msg.authTag });
+          } catch {
+            content = "[unable to decrypt]";
+          }
         }
         return {
           id: msg.id,
@@ -341,6 +352,45 @@ export async function resolveEscalation(
   }
 
   return moderationAction;
+}
+
+/**
+ * Decrypt the EXACT reported voice note for moderator playback. Playback is
+ * authorized only when messageId === report.reportedMessageId, the message is
+ * a voice note, and it belongs to the report's conversation. A conversation-
+ * or user-level report with no exact reportedMessageId authorizes no audio.
+ * Unauthorized attempts throw NotFound (never revealing whether other audio
+ * exists). Returns raw base64 audio; the caller sets no-store and audits.
+ * Never logs audio content.
+ */
+export async function getReportedVoiceAudio(
+  reportId: string,
+  messageId: string,
+): Promise<{ base64Audio: string }> {
+  const report = await prisma.report.findUnique({
+    where: { id: reportId },
+    select: { conversationId: true, reportedMessageId: true },
+  });
+  // Uniform NotFound for missing report or any authorization miss below —
+  // never leak whether unrelated audio exists.
+  if (!report || !report.reportedMessageId || report.reportedMessageId !== messageId) {
+    throw new NotFoundError("Reported voice note not found");
+  }
+
+  const message = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: { conversationId: true, messageType: true, content: true, iv: true, authTag: true },
+  });
+  if (
+    !message ||
+    message.messageType !== "voice" ||
+    message.conversationId !== report.conversationId
+  ) {
+    throw new NotFoundError("Reported voice note not found");
+  }
+
+  const base64Audio = decrypt({ ciphertext: message.content, iv: message.iv, authTag: message.authTag });
+  return { base64Audio };
 }
 
 export async function getDashboardStats() {

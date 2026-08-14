@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from "react";
-import { View, TouchableOpacity, Text, StyleSheet, Dimensions } from "react-native";
+import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Pressable } from "react-native";
 import { Audio } from "expo-av";
 import { File, Paths } from "expo-file-system";
 import Svg, { Path, Rect } from "react-native-svg";
@@ -29,6 +29,7 @@ interface VoiceMessageBubbleProps {
   sentAt: string;
   deliveryStatus?: string;
   waveform?: number[];
+  onLongPress?: () => void;
 }
 
 function formatDuration(ms: number): string {
@@ -52,30 +53,39 @@ export function VoiceMessageBubble({
   sentAt,
   deliveryStatus,
   waveform,
+  onLongPress,
 }: VoiceMessageBubbleProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const tmpFileRef = useRef<File | null>(null);
 
   const time = new Date(sentAt).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
 
-  useEffect(() => {
-    return () => {
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-      }
-    };
+  // Unload the sound and delete the decoded temp file. Safe to call from any
+  // path (finish, manual stop, error, unmount) — always leaves no temp file.
+  const teardownPlayback = useCallback(() => {
+    if (soundRef.current) {
+      soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+    if (tmpFileRef.current) {
+      try { tmpFileRef.current.delete(); } catch {}
+      tmpFileRef.current = null;
+    }
   }, []);
+
+  useEffect(() => {
+    return () => teardownPlayback();
+  }, [teardownPlayback]);
 
   const handlePlay = useCallback(async () => {
     if (isPlaying && soundRef.current) {
-      await soundRef.current.stopAsync();
-      await soundRef.current.unloadAsync();
-      soundRef.current = null;
+      try { await soundRef.current.stopAsync(); } catch {}
+      teardownPlayback();
       setIsPlaying(false);
       setProgress(0);
       return;
@@ -87,10 +97,17 @@ export function VoiceMessageBubble({
         playsInSilentModeIOS: true,
       });
 
-      // Write base64 to a temp file for AVPlayer playback
-      const tmpFile = new File(Paths.cache, `voice_${Date.now()}.m4a`);
+      // Write base64 to a temp file for AVPlayer playback. Real voice notes are
+      // AAC/m4a, but the App Review demo seeds a RIFF/WAVE clip — pick the
+      // extension from the actual header so AVFoundation loads either reliably.
       const bytes = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
+      const isWav =
+        bytes.length >= 12 &&
+        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && // "RIFF"
+        bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45; // "WAVE"
+      const tmpFile = new File(Paths.cache, `voice_${Date.now()}.${isWav ? "wav" : "m4a"}`);
       tmpFile.write(bytes);
+      tmpFileRef.current = tmpFile;
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: tmpFile.uri },
@@ -103,9 +120,7 @@ export function VoiceMessageBubble({
           if (status.didJustFinish) {
             setIsPlaying(false);
             setProgress(0);
-            sound.unloadAsync();
-            soundRef.current = null;
-            try { tmpFile.delete(); } catch {}
+            teardownPlayback();
           }
         }
       );
@@ -113,10 +128,11 @@ export function VoiceMessageBubble({
       soundRef.current = sound;
       setIsPlaying(true);
     } catch (err) {
-      console.error("Voice playback error:", err);
+      console.error("Voice playback error");
+      teardownPlayback();
       setIsPlaying(false);
     }
-  }, [content, isPlaying]);
+  }, [content, isPlaying, teardownPlayback]);
 
   // Scale bubble width based on duration: 2s → 45%, 60s → 85% of screen
   const screenWidth = Dimensions.get("window").width;
@@ -161,7 +177,11 @@ export function VoiceMessageBubble({
   }, [waveform, barCount]);
 
   return (
-    <View style={[styles.wrapper, isMine && styles.wrapperMine, { width: bubbleWidth }]}>
+    <Pressable
+      style={[styles.wrapper, isMine && styles.wrapperMine, { width: bubbleWidth }]}
+      onLongPress={onLongPress}
+      delayLongPress={500}
+    >
       <View style={[styles.bubble, isMine ? styles.mine : styles.theirs]}>
         <View style={styles.row}>
           <TouchableOpacity onPress={handlePlay} style={styles.playButton}>
@@ -206,7 +226,7 @@ export function VoiceMessageBubble({
           </Text>
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 

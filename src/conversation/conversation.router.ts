@@ -133,7 +133,7 @@ router.put("/:id/nickname", async (req, res, next) => {
     }
     const { setNickname } = await import("./conversation.service.js");
     const nickname = parsed.data.nickname ?? null;
-    console.log(`[nickname] Setting nickname for conv=${req.params.id} user=${req.user!.userId} nickname=${nickname}`);
+    // Nickname is user-authored PII — do not log its value.
     await setNickname(req.params.id, req.user!.userId, nickname);
     res.json({ ok: true });
   } catch (err) {
@@ -144,7 +144,8 @@ router.put("/:id/nickname", async (req, res, next) => {
 
 // Voice notes — available to all tiers, handled primarily via Socket.IO
 router.post("/:id/voice-note", async (_req, res) => {
-  res.status(200).json({ message: "Use Socket.IO conversation:voice-note event for voice notes" });
+  // Voice notes are sent via the Socket.IO conversation:voice-note event.
+  res.status(200).json({ message: "Use the Socket.IO conversation:voice-note event for voice notes" });
 });
 
 // Stub: Post-session summary (Premium+)

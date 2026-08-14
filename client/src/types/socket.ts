@@ -10,6 +10,15 @@ export interface ClientToServerEvents {
     conversationId: string;
     content: string;
   }) => void;
+  "conversation:voice-note": (
+    data: {
+      conversationId: string;
+      audio: string;
+      durationMs: number;
+      waveform?: number[];
+    },
+    ack: (result: { status: "sent" | "rejected" | "retry"; messageId?: string; message?: string }) => void,
+  ) => void;
   "message:delivered": (data: { messageIds: string[] }) => void;
   "message:read": (data: {
     conversationId: string;
@@ -27,6 +36,10 @@ export interface ClientToServerEvents {
   "livesession:extend": (data: { liveSessionId: string }) => void;
   "livesession:end": (data: { liveSessionId: string }) => void;
   typing: (data: { conversationId?: string; liveSessionId?: string }) => void;
+  // Push suppression: tells the server which conversation is on screen so its
+  // pushes are muted (see server chat.gateway push:active/push:inactive).
+  "push:active": (data: { conversationId: string }) => void;
+  "push:inactive": () => void;
 }
 
 export interface ServerToClientEvents {

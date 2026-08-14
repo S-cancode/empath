@@ -18,6 +18,7 @@ import { startEnforcementSubscriber, stopEnforcementSubscriber } from "./safety/
 import { complianceRouter } from "./compliance/compliance.router.js";
 import { adminRouter } from "./admin/admin.router.js";
 import { settingsRouter } from "./settings/settings.router.js";
+import { reviewRouter } from "./review/review.router.js";
 import { startAutoArchiveWorker, stopAutoArchiveWorker, startRetentionWorker, stopRetentionWorker } from "./conversation/conversation.worker.js";
 import { setupChatGateway } from "./chat/chat.gateway.js";
 import { startMessageBuffer, stopMessageBuffer, flushMessages } from "./chat/chat.service.js";
@@ -72,6 +73,7 @@ app.use("/safety", safetyRouter);
 app.use("/compliance", complianceRouter);
 app.use("/admin", adminRouter);
 app.use("/settings", settingsRouter);
+app.use("/review", reviewRouter);
 
 // Error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

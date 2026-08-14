@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main, app-store-readiness]
+  # `edited` is included so retargeting a PR's base branch re-runs CI against
+  # the new base (default pull_request types don't fire on a base change).
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  backend:
+    name: Backend build + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # One backend test (src/translate/translationDisplay.test.ts) imports a
+      # pure helper from the client tree (client/src/components/chat/
+      # translationDisplay.ts). Vitest's transform reads that file's tsconfig,
+      # which extends expo/tsconfig.base — only present once client deps are
+      # installed. So the backend test job needs client node_modules too.
+      - name: Install client deps (backend test imports a client-side helper)
+        run: npm ci
+        working-directory: client
+      - run: npm test
+      # Real gate: backend production deps currently have 0 vulnerabilities, so
+      # any new high/critical fails CI (not merely informational).
+      - name: Production dependency audit (fails on high/critical)
+        run: npm audit --omit=dev --audit-level=high
+
+  client:
+    name: Client TypeScript + Expo checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx expo-doctor
+      - name: iOS JavaScript export
+        run: npx expo export --platform ios --output-dir /tmp/empath-ios-ci
+      # Real gate bounded to critical: the client's known moderate/high findings
+      # are all in Expo's build-time toolchain (@expo/prebuild-config →
+      # @expo/config*), fixable only by an Expo major upgrade we are not taking
+      # for audit numbers. There are 0 critical, so this fails only on a genuine
+      # new critical, while tolerating the documented build-time highs.
+      - name: Production dependency audit (fails on critical)
+        run: npm audit --omit=dev --audit-level=critical

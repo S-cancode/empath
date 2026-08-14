@@ -4,7 +4,10 @@ import { encrypt, decrypt } from "../lib/crypto.js";
 import { emitNotification } from "../notifications/notification.service.js";
 import { isOnline } from "../presence/presence.service.js";
 import { getTierLimits } from "../config/tiers.js";
-import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError } from "../shared/errors.js";
+import { NotFoundError, ForbiddenError, UpgradeRequiredError, ValidationError, ContentBlockedError } from "../shared/errors.js";
+import { moderateText } from "../safety/content-moderation.service.js";
+import { transcribeForModeration } from "../safety/voice-transcription.service.js";
+import { validateVoicePayload } from "./voice-validation.js";
 import { SubscriptionTier } from "../shared/types.js";
 import { detectLanguageHeuristic, translateBatch, isSupportedLanguage } from "../translate/translate.service.js";
 
@@ -209,6 +212,8 @@ export async function getMessages(
   });
 }
 
+// Authoritative server-side limits (never trust the client): ~2MB base64 for
+// up to 60s of compressed audio.
 export async function sendVoiceNote(
   conversationId: string,
   senderId: string,
@@ -218,6 +223,29 @@ export async function sendVoiceNote(
 ) {
   const conversation = await getConversation(conversationId, senderId);
   assertConversationActive(conversation);
+
+  // Validate + decode the bounded payload before any processing.
+  const { audio, durationMs: validDuration, waveform: validWaveform } =
+    validateVoicePayload({ conversationId, audio: base64Audio, durationMs, waveform });
+
+  // Pre-delivery moderation for audio: transcribe → run the SAME text
+  // moderator → discard the transcript. Fail closed on any transcription or
+  // moderation error so unmoderated audio is never delivered.
+  let moderation;
+  try {
+    const transcript = await transcribeForModeration(audio);
+    moderation = await moderateText(transcript);
+  } catch {
+    // Retryable: the safety provider is unavailable, so quarantine.
+    throw new ContentBlockedError(true);
+  }
+  if (!moderation.allowed) {
+    if (moderation.action === "block") {
+      await recordModerationBlock(conversationId, senderId, [...moderation.categories, "voice"]);
+    }
+    throw new ContentBlockedError(moderation.action === "quarantine");
+  }
+
   const recipientId =
     conversation.userAId === senderId
       ? conversation.userBId
@@ -233,8 +261,8 @@ export async function sendVoiceNote(
       iv: encrypted.iv,
       authTag: encrypted.authTag,
       messageType: "voice",
-      voiceDurationMs: durationMs,
-      waveform: waveform ?? undefined,
+      voiceDurationMs: validDuration,
+      waveform: validWaveform ?? undefined,
     },
   });
 
@@ -260,6 +288,21 @@ export async function sendVoiceNote(
   return message;
 }
 
+async function recordModerationBlock(
+  conversationId: string,
+  senderId: string,
+  categories: string[],
+): Promise<void> {
+  try {
+    await prisma.moderationBlock.create({
+      data: { conversationId, senderId, categories },
+    });
+  } catch (err) {
+    // Metadata logging must never block the rejection path.
+    console.error("[moderation] failed to record block:", (err as Error).message);
+  }
+}
+
 export async function sendAsyncMessage(
   conversationId: string,
   senderId: string,
@@ -271,6 +314,17 @@ export async function sendAsyncMessage(
     conversation.userAId === senderId
       ? conversation.userBId
       : conversation.userAId;
+
+  // Pre-delivery moderation: authorization → moderation → persistence →
+  // delivery. A blocked/quarantined message is never persisted as delivered,
+  // never emitted to the recipient, never pushed.
+  const moderation = await moderateText(plaintext);
+  if (!moderation.allowed) {
+    if (moderation.action === "block") {
+      await recordModerationBlock(conversationId, senderId, moderation.categories);
+    }
+    throw new ContentBlockedError(moderation.action === "quarantine");
+  }
 
   const encrypted = encrypt(plaintext);
   const sourceLanguage = detectLanguageHeuristic(plaintext);
@@ -294,6 +348,8 @@ export async function sendAsyncMessage(
 
   // Notify recipient
   const recipientOnline = await isOnline(recipientId);
+  // Never put message plaintext on the notification bus — push builds neutral
+  // copy and the socket path carries content over the authenticated channel.
   emitNotification({
     type: "new_message",
     recipientId,
@@ -301,7 +357,6 @@ export async function sendAsyncMessage(
       conversationId,
       messageId: message.id,
       senderId,
-      messageContent: plaintext,
       messageType: "text",
       online: recipientOnline,
     },

@@ -7,9 +7,11 @@ import {
   StyleSheet,
   Animated,
 } from "react-native";
+import { Alert, Linking } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { colors } from "@/theme/colors";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
+import { useVoiceConsent } from "@/hooks/useVoiceConsent";
 
 function MicIcon({ color = colors.primary, size = 20 }: { color?: string; size?: number }) {
   return (
@@ -43,6 +45,7 @@ export function ChatInput({
   const lastTypingRef = useRef(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const { isRecording, durationSec, start, stop, cancel } = useVoiceRecorder();
+  const { ensureVoiceConsent } = useVoiceConsent();
 
   useEffect(() => {
     if (isRecording) {
@@ -90,7 +93,24 @@ export function ChatInput({
   };
 
   const handleStartRecording = async () => {
-    await start();
+    // 1) Explicit voice-privacy consent before we ever touch the microphone.
+    const consented = await ensureVoiceConsent();
+    if (!consented) return; // text chat stays fully usable
+
+    // 2) Request permission and surface denial clearly (never silent).
+    const result = await start();
+    if (result === "denied") {
+      Alert.alert(
+        "Microphone access needed",
+        "To record a voice note, allow microphone access for Empath in Settings. You can keep using text chat without it.",
+        [
+          { text: "Not now", style: "cancel" },
+          ...(Linking.openSettings ? [{ text: "Open Settings", onPress: () => Linking.openSettings() }] : []),
+        ],
+      );
+    } else if (result === "error") {
+      Alert.alert("Couldn't start recording", "Please try again.");
+    }
   };
 
   const handleStopRecording = async () => {

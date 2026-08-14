@@ -1,8 +1,42 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Audio } from "expo-av";
+import { File } from "expo-file-system";
 
 const MAX_DURATION_MS = 60_000;
 const METERING_INTERVAL = 100; // sample every 100ms
+const MAX_WAVEFORM_SAMPLES = 600; // server hard limit
+
+/** Cap the waveform to the server limit, downsampling by max-in-bucket. */
+function capWaveform(samples: number[]): number[] {
+  if (samples.length <= MAX_WAVEFORM_SAMPLES) return samples;
+  const out: number[] = [];
+  const step = samples.length / MAX_WAVEFORM_SAMPLES;
+  for (let i = 0; i < MAX_WAVEFORM_SAMPLES; i++) {
+    let max = 0;
+    for (let j = Math.floor(i * step); j < Math.floor((i + 1) * step) && j < samples.length; j++) {
+      if (samples[j] > max) max = samples[j];
+    }
+    out.push(max);
+  }
+  return out;
+}
+
+export type StartResult = "started" | "denied" | "error";
+
+/** Always reset iOS audio mode back to playback after recording. */
+async function resetAudioMode(): Promise<void> {
+  try {
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+  } catch {}
+}
+
+/** Delete the raw source recording file once we have the base64. */
+function deleteSourceFile(uri: string | null): void {
+  if (!uri) return;
+  try {
+    new File(uri).delete();
+  } catch {}
+}
 
 /** Convert a local file URI to a base64 string using fetch + blob reader */
 async function uriToBase64(uri: string): Promise<string> {
@@ -31,7 +65,7 @@ interface VoiceRecorderResult {
   isRecording: boolean;
   durationSec: number;
   waveform: number[];
-  start: () => Promise<void>;
+  start: () => Promise<StartResult>;
   stop: () => Promise<{ base64: string; durationMs: number; waveform: number[] } | null>;
   cancel: () => Promise<void>;
 }
@@ -63,25 +97,35 @@ export function useVoiceRecorder(): VoiceRecorderResult {
     return () => {
       cleanup();
       if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+        const rec = recordingRef.current;
         recordingRef.current = null;
+        rec.stopAndUnloadAsync()
+          .then(() => deleteSourceFile(rec.getURI()))
+          .catch(() => {})
+          .finally(() => resetAudioMode());
       }
     };
   }, [cleanup]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (): Promise<StartResult> => {
+    // Caller is responsible for showing the voice consent notice before this.
     const permission = await Audio.requestPermissionsAsync();
-    if (!permission.granted) return;
+    if (!permission.granted) return "denied";
 
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-    });
-
-    const { recording } = await Audio.Recording.createAsync({
-      ...Audio.RecordingOptionsPresets.LOW_QUALITY,
-      isMeteringEnabled: true,
-    });
+    let recording: Audio.Recording;
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      ({ recording } = await Audio.Recording.createAsync({
+        ...Audio.RecordingOptionsPresets.LOW_QUALITY,
+        isMeteringEnabled: true,
+      }));
+    } catch {
+      await resetAudioMode();
+      return "error";
+    }
 
     recordingRef.current = recording;
     startTimeRef.current = Date.now();
@@ -107,6 +151,8 @@ export function useVoiceRecorder(): VoiceRecorderResult {
         }
       } catch {}
     }, METERING_INTERVAL);
+
+    return "started";
   }, []);
 
   const stop = useCallback(async (): Promise<{ base64: string; durationMs: number; waveform: number[] } | null> => {
@@ -118,18 +164,19 @@ export function useVoiceRecorder(): VoiceRecorderResult {
     const finalWaveform = [...waveformRef.current];
     cleanup();
 
-    await recording.stopAndUnloadAsync();
-    const uri = recording.getURI();
-    if (!uri) return null;
-
-    const base64 = await uriToBase64(uri);
-
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-    });
-
-    return { base64, durationMs: Math.min(durationMs, MAX_DURATION_MS), waveform: finalWaveform };
+    let uri: string | null = null;
+    try {
+      await recording.stopAndUnloadAsync();
+      uri = recording.getURI();
+      if (!uri) return null;
+      const base64 = await uriToBase64(uri);
+      return { base64, durationMs: Math.min(durationMs, MAX_DURATION_MS), waveform: capWaveform(finalWaveform) };
+    } finally {
+      // Always reset the audio mode and delete the raw source recording,
+      // whether we succeeded, failed, or returned early.
+      await resetAudioMode();
+      deleteSourceFile(uri);
+    }
   }, [cleanup]);
 
   const cancel = useCallback(async () => {
@@ -141,12 +188,14 @@ export function useVoiceRecorder(): VoiceRecorderResult {
     waveformRef.current = [];
     setWaveform([]);
 
-    await recording.stopAndUnloadAsync();
-
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-    });
+    let uri: string | null = null;
+    try {
+      await recording.stopAndUnloadAsync();
+      uri = recording.getURI();
+    } finally {
+      await resetAudioMode();
+      deleteSourceFile(uri);
+    }
   }, [cleanup]);
 
   return { isRecording, durationSec, waveform, start, stop, cancel };

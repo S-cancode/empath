@@ -2,32 +2,25 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
-import { Badge } from "@/components/ui/Badge";
 import type { Tier, MatchStatus } from "@/types/api";
 
 interface TierCardProps {
-  tier: Tier;
+  // Kept for call-site compatibility; v1 has a single free tier and shows no
+  // plan/tier/upgrade framing.
+  tier?: Tier;
   matchStatus?: MatchStatus;
 }
 
-const tierDescriptions: Record<Tier, string> = {
-  free: "10 matches per day",
-  premium: "10 matches per day, sub-tags",
-  plus: "Unlimited matches, all features",
-};
-
-export function TierCard({ tier, matchStatus }: TierCardProps) {
+export function TierCard({ matchStatus }: TierCardProps) {
   return (
     <View style={styles.card}>
-      <View style={styles.header}>
-        <Text style={styles.label}>Your Plan</Text>
-        <Badge tier={tier} />
-      </View>
-      <Text style={styles.description}>{tierDescriptions[tier]}</Text>
-      {matchStatus && matchStatus.limit > 0 && (
+      <Text style={styles.label}>Daily matches</Text>
+      {matchStatus && matchStatus.limit > 0 ? (
         <Text style={styles.matches}>
-          {matchStatus.used}/{matchStatus.limit} matches used today
+          {matchStatus.used}/{matchStatus.limit} used today
         </Text>
+      ) : (
+        <Text style={styles.matches}>Unlimited</Text>
       )}
     </View>
   );

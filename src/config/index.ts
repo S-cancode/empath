@@ -17,8 +17,41 @@ const envSchema = z.object({
   OPENAI_BASE_URL: z.string().url().optional(),
   OPENROUTER_MODEL: z.string().default("gpt-4o-mini"),
   ADMIN_SECRET: z.string().min(6).optional(),
+  // Sign in with Apple: audience claim of Apple identity tokens.
+  APPLE_BUNDLE_ID: z.string().default("com.shivandongha.empath"),
+  // Disposable anonymous accounts defeat ban enforcement (Apple Guideline 1.2).
+  // Allowed only outside production (dev/tests/simulator flows).
+  ALLOW_ANONYMOUS_AUTH: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
   // Comma-separated Expo push tokens for founder escalation alerts
   FOUNDER_PUSH_TOKENS: z.string().optional(),
+  // Deterministic App Review path. OFF by default; only the allowlisted Apple
+  // subs below get the isolated scripted demo conversation. Never trust a
+  // client-provided reviewer flag.
+  REVIEW_MODE: z
+    .string()
+    .optional()
+    .transform((v) => v === "true"),
+  REVIEW_APPLE_SUBS: z.string().optional(),
+  // Server-only secret the Apple reviewer enters in-app (from App Review notes)
+  // to redeem a durable review grant. Never sent to the client, never in an
+  // EXPO_PUBLIC_* var, never logged. Compared in constant time. Min length
+  // enforced so a weak code can't be brute-forced past the rate limiter.
+  REVIEW_ACCESS_CODE: z.string().min(16).optional(),
+  // Sign in with Apple server-to-server credentials (Apple TN3194). Used to
+  // generate the ES256 client secret for the token endpoint (authorization-code
+  // exchange) and the revoke endpoint (account deletion). All optional: when
+  // absent, sign-in still works but Apple token revocation is unavailable and
+  // deletion falls back to manual-revocation guidance.
+  APPLE_TEAM_ID: z.string().optional(),
+  APPLE_KEY_ID: z.string().optional(),
+  // PKCS#8 PEM of the Sign in with Apple private key (.p8). May contain literal
+  // "\n" escapes (env-friendly); normalised at use. Never logged.
+  APPLE_PRIVATE_KEY: z.string().optional(),
+  // Client id for the server-to-server secret. Defaults to the bundle id.
+  APPLE_CLIENT_ID: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z
     .enum(["development", "production", "test"])

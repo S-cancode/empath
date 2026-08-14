@@ -14,6 +14,21 @@ export async function createAnonymousUser(
   return data;
 }
 
+export async function signInWithApple(
+  identityToken: string,
+  deviceId: string,
+  authorizationCode?: string | null
+): Promise<AuthResponse> {
+  const { data } = await axios.post<AuthResponse>(`${API_URL}/auth/apple`, {
+    identityToken,
+    deviceId,
+    // Sent when Apple provides it, so the server can exchange it for a
+    // revocable refresh token (used to revoke Apple access on deletion).
+    ...(authorizationCode ? { authorizationCode } : {}),
+  });
+  return data;
+}
+
 export async function refreshTokens(
   refreshToken: string
 ): Promise<TokenResponse> {
