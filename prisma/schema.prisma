@@ -51,6 +51,14 @@ model User {
   // The durable identity anchor: enforcement (bans, blocks, reports) must
   // survive reinstalls, so it binds here, not to deviceId.
   appleSub         String?  @unique @map("apple_sub")
+  // Apple refresh token (from authorization-code exchange), encrypted at rest
+  // with AES-256-GCM. Used to revoke Apple access on account deletion
+  // (Apple TN3194). Null for legacy accounts that signed in before the
+  // authorization-code exchange existed — deletion then falls back to manual
+  // revocation guidance. Never logged, never returned to a client.
+  appleRefreshTokenCipher  String? @map("apple_refresh_token_cipher")
+  appleRefreshTokenIv      String? @map("apple_refresh_token_iv")
+  appleRefreshTokenAuthTag String? @map("apple_refresh_token_auth_tag")
   email            String?
   subscriptionTier String   @default("free") @map("subscription_tier")
   tokenVersion     Int      @default(0) @map("token_version")
@@ -87,6 +95,7 @@ model User {
   termsAcceptances   TermsAcceptance[]
   consentRecords     ConsentRecord[]
   complaints         Complaint[]
+  reviewGrant        ReviewGrant?
 
   @@unique([deviceId])
   @@map("users")
@@ -99,6 +108,13 @@ model Conversation {
   category      String
   subTag        String?   @map("sub_tag")
   status           String    @default("active")
+  // Set only on the App Review demo conversation, to the reviewer's user id.
+  // A UNIQUE constraint here is the concurrency anchor: provisioning does an
+  // atomic create-or-catch on this key, so concurrent relaunch requests can
+  // never race into two active demo relationships (and can never route around
+  // a persisted block/report by re-creating the fixture). Null for all real
+  // conversations.
+  reviewKey        String?   @unique @map("review_key")
   matchContext     Json?     @map("match_context")
   rawPromptCipher  String?   @map("raw_prompt_cipher")
   rawPromptIv      String?   @map("raw_prompt_iv")
@@ -122,6 +138,23 @@ model Conversation {
   @@index([userBId])
   @@index([status])
   @@map("conversations")
+}
+
+// A durable App Review access grant. Created when an authenticated user
+// redeems the reviewer access code (POST /review/redeem) while REVIEW_MODE is
+// on. Its existence — not a client flag, not a pre-known Apple sub — is what
+// makes ensureDemoConversation available, so Apple can gain the demo path with
+// their own Sign in with Apple account after entering the code from App Review
+// notes. `userId` is UNIQUE so redemption is idempotent and a reviewer keeps
+// access across relaunches without re-entering the code.
+model ReviewGrant {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  grantedAt DateTime @default(now()) @map("granted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("review_grants")
 }
 
 model LiveSession {

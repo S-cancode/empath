@@ -3,6 +3,11 @@ import { prisma } from "../lib/prisma.js";
 import { config } from "../config/index.js";
 import { AuthError, ForbiddenError } from "../shared/errors.js";
 import { generateAlias, hashDeviceId, issueTokens } from "./auth.service.js";
+import {
+  exchangeAuthorizationCode,
+  encryptAppleRefreshToken,
+  isAppleServerConfigured,
+} from "./apple-tokens.js";
 
 const APPLE_ISSUER = "https://appleid.apple.com";
 
@@ -39,7 +44,11 @@ async function verifyIdentityToken(identityToken: string): Promise<AppleIdentity
  *
  * Public presentation stays pseudonymous: peers only ever see the alias.
  */
-export async function signInWithApple(identityToken: string, deviceId: string) {
+export async function signInWithApple(
+  identityToken: string,
+  deviceId: string,
+  authorizationCode?: string,
+) {
   const identity = await verifyIdentityToken(identityToken);
   const hashedDeviceId = hashDeviceId(deviceId);
 
@@ -84,6 +93,25 @@ export async function signInWithApple(identityToken: string, deviceId: string) {
 
   if (user.banned) {
     throw new ForbiddenError("This account has been permanently banned");
+  }
+
+  // Best-effort authorization-code exchange: obtain and store (encrypted) an
+  // Apple refresh token so we can revoke Apple access on account deletion.
+  // Sign-in must never fail because Apple's token endpoint is slow/down or the
+  // server-to-server credentials are missing — so this is wrapped and any
+  // failure is logged without exposing the code or token.
+  if (authorizationCode && isAppleServerConfigured()) {
+    try {
+      const refreshToken = await exchangeAuthorizationCode(authorizationCode);
+      if (refreshToken) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: encryptAppleRefreshToken(refreshToken),
+        });
+      }
+    } catch (err) {
+      console.error("[apple] authorization-code exchange failed:", (err as Error).message);
+    }
   }
 
   return { ...issueTokens(user), user: { id: user.id, alias: user.anonymousAlias } };

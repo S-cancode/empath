@@ -136,8 +136,11 @@ router.get("/export", async (req, res, next) => {
 
 router.delete("/account", async (req, res, next) => {
   try {
-    await deleteAccount(req.user!.userId);
-    res.json({ ok: true, message: "Account deleted" });
+    // appleRevocation tells the client whether Apple access was actually
+    // revoked, so it can show accurate manual-revocation guidance when it was
+    // not (never a false "revoked").
+    const { appleRevocation } = await deleteAccount(req.user!.userId);
+    res.json({ ok: true, message: "Account deleted", appleRevocation });
   } catch (err) {
     next(err);
   }

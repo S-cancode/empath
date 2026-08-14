@@ -7,6 +7,13 @@ import { revokeUserSessions } from "../auth/auth.service.js";
 import { disconnectUserSockets } from "../safety/enforcement.service.js";
 import { evictFromMatching } from "../matching/matching.service.js";
 import { invalidateComplianceCache } from "./compliance-gate.service.js";
+import {
+  decryptAppleRefreshToken,
+  revokeRefreshToken,
+  isAppleServerConfigured,
+} from "../auth/apple-tokens.js";
+
+export type AppleRevocationOutcome = "revoked" | "failed" | "unavailable" | "not_applicable";
 
 // --- Text versioning ---
 
@@ -396,9 +403,33 @@ export async function exportUserData(userId: string) {
   };
 }
 
-export async function deleteAccount(userId: string): Promise<void> {
+export async function deleteAccount(
+  userId: string,
+): Promise<{ appleRevocation: AppleRevocationOutcome }> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new NotFoundError("User not found");
+
+  // Explicit ordering (Apple TN3194): attempt Apple token revocation FIRST,
+  // using the token captured before erasure, THEN erase locally. Local erasure
+  // must proceed regardless of Apple availability — right to erasure (Art. 17)
+  // cannot be blocked by a third party. The outcome is reported truthfully so
+  // the client can show manual-revocation guidance when needed.
+  let appleRevocation: AppleRevocationOutcome = "not_applicable";
+  const appleRefreshToken = decryptAppleRefreshToken(user);
+  if (appleRefreshToken && isAppleServerConfigured()) {
+    try {
+      await revokeRefreshToken(appleRefreshToken);
+      appleRevocation = "revoked";
+    } catch (err) {
+      // Transient/permanent Apple failure — observable, no secret exposed.
+      appleRevocation = "failed";
+      console.error("[apple] token revocation failed during account deletion:", (err as Error).message);
+    }
+  } else if (user.appleSub) {
+    // Legacy account (signed in before token storage) or server unconfigured:
+    // we cannot revoke programmatically → the client shows manual steps.
+    appleRevocation = "unavailable";
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.message.deleteMany({ where: { senderId: userId } });
@@ -438,6 +469,9 @@ export async function deleteAccount(userId: string): Promise<void> {
         anonymousAlias: "deleted-user",
         deviceId: `deleted-${userId}`,
         appleSub: null,
+        appleRefreshTokenCipher: null,
+        appleRefreshTokenIv: null,
+        appleRefreshTokenAuthTag: null,
         pushToken: null,
         dateOfBirth: null,
         deletedAt: new Date(),
@@ -447,4 +481,5 @@ export async function deleteAccount(userId: string): Promise<void> {
   });
 
   await complianceRevocationCascade(userId);
+  return { appleRevocation };
 }

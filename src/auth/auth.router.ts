@@ -16,6 +16,10 @@ const anonymousSchema = z.object({
 const appleSchema = z.object({
   identityToken: z.string().min(10),
   deviceId: z.string().min(1).max(256),
+  // One-time authorization code for the server-to-server token exchange.
+  // Optional: not every Sign in with Apple response includes one (e.g. silent
+  // re-auth), and legacy clients don't send it.
+  authorizationCode: z.string().min(1).max(2048).optional(),
 });
 
 router.post("/apple", authLimiter, async (req, res, next) => {
@@ -24,7 +28,11 @@ router.post("/apple", authLimiter, async (req, res, next) => {
     if (!parsed.success) {
       throw new ValidationError("Invalid Apple sign-in payload");
     }
-    const result = await signInWithApple(parsed.data.identityToken, parsed.data.deviceId);
+    const result = await signInWithApple(
+      parsed.data.identityToken,
+      parsed.data.deviceId,
+      parsed.data.authorizationCode,
+    );
     res.json(result);
   } catch (err) {
     next(err);
