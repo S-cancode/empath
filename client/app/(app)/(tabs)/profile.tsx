@@ -13,6 +13,13 @@ import { Avatar } from "@/components/ui/Avatar";
 import { AppBackground } from "@/components/ui/AppBackground";
 import { withdrawConsent, deleteAccount } from "@/api/compliance.api";
 import { isReviewBuild } from "@/api/review.api";
+import {
+  DELETION_CONFIRM_TITLE,
+  DELETION_CONFIRM_BODY,
+  DELETION_DONE_TITLE,
+  DELETION_DONE_BODY,
+  DELETION_DONE_APPLE_MANUAL_SUFFIX,
+} from "@/lib/deletion-copy";
 
 function SettingsRow({
   icon,
@@ -83,8 +90,8 @@ export default function ProfileScreen() {
 
   const handleDeleteAccount = () => {
     Alert.alert(
-      "Delete Account",
-      "This will permanently delete your account and all associated data, including your profile, conversation history, and consent records. This action cannot be undone.",
+      DELETION_CONFIRM_TITLE,
+      DELETION_CONFIRM_BODY,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -119,10 +126,10 @@ export default function ProfileScreen() {
                       const needsManual =
                         appleRevocation === "failed" || appleRevocation === "unavailable";
                       Alert.alert(
-                        "Account Deleted",
+                        DELETION_DONE_TITLE,
                         needsManual
-                          ? "Your account and data have been deleted. To also stop Sign in with Apple for Empath, open the Settings app → tap your name → Sign in with Apple → Empath → Stop Using Apple ID."
-                          : "Your account has been deleted."
+                          ? DELETION_DONE_BODY + DELETION_DONE_APPLE_MANUAL_SUFFIX
+                          : DELETION_DONE_BODY
                       );
                       router.replace("/(auth)/onboarding");
                     } catch {
