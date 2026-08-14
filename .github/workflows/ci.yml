@@ -28,6 +28,18 @@ jobs:
       - name: Install client deps (backend test imports a client-side helper)
         run: npm ci
         working-directory: client
+      # `npm test` is the release gate for the store-critical invariants — all
+      # run here and fail CI (no `|| true`):
+      #  - privacy-retention contract (conversation.test.ts: 7d messages across
+      #    statuses, report/hold exceptions, crisis-not-permanent, 180d matching,
+      #    bounded/idempotent)
+      #  - EAS build+submit profile match + review-vs-production OTA channel
+      #    isolation + review-mode env (review/eas-config.test.ts)
+      #  - reported-audio MIME correctness (safety/audio-mime.test.ts,
+      #    admin/reported-voice.test.ts)
+      #  - account-deletion copy truth (compliance/deletion-copy.test.ts)
+      #  - Apple revocation handling (auth/apple-notifications.test.ts)
+      #  - migration/HNSW guard (lib/migration-guard.test.ts)
       - run: npm test
       # Real gate: backend production deps currently have 0 vulnerabilities, so
       # any new high/critical fails CI (not merely informational).
@@ -50,6 +62,9 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx expo-doctor
+      # A JS bundle export proves the app bundles/typechecks for iOS. It is NOT
+      # a signed IPA — the store artifact still requires `eas build --profile
+      # store-review` (not run in CI; needs signing credentials).
       - name: iOS JavaScript export
         run: npx expo export --platform ios --output-dir /tmp/empath-ios-ci
       # Real gate bounded to critical: the client's known moderate/high findings
