@@ -52,11 +52,16 @@ app.
 - Free-text prompts: deleted after matching (within minutes)
 - Anonymised matching data: up to 180 days
 - Chat messages (incl. voice notes): encrypted at rest, auto-deleted after 7
-  days; retained longer only while under an active report or safety review;
-  deleted immediately on account deletion. Voice-safety transcripts are never
-  stored.
+  days. Kept longer only in two bounded cases: while a report about the
+  conversation is open (until it is resolved), or under a moderator safeguarding
+  escalation (up to 90 days). Automated crisis-keyword detection alone does not
+  extend message retention. Deleted immediately on account deletion. Voice-safety
+  transcripts are never stored.
+- Anonymised matching data (numeric text representations, category/quality
+  scores, and derived match context): deleted or anonymised after 180 days.
 - Translated text (auto-translate users only): encrypted cache up to 24 hours
-- Crisis-signposting logs: 12 months
+- Crisis-signposting event logs (that a keyword was detected, not the message):
+  12 months
 - Device identifiers / IP: lifetime of the account, deleted within 30 days of
   deletion
 - After account deletion, we retain only what law requires: terms-acceptance

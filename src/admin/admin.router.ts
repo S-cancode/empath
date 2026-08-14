@@ -93,6 +93,8 @@ adminRouter.post("/reports/:id/action", async (req: Request, res: Response, next
 const resolveEscalationSchema = z.object({
   outcome: z.string().min(1).max(1000),
   liftSuspension: z.boolean().optional().default(false),
+  // Release the safeguarding retention hold early (otherwise it auto-expires).
+  clearRetentionHold: z.boolean().optional().default(false),
 });
 
 // Resolve an escalated report (founder review outcome)
@@ -102,13 +104,14 @@ adminRouter.post("/reports/:id/escalation/resolve", async (req: Request, res: Re
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues[0].message);
     }
-    const { outcome, liftSuspension } = parsed.data;
+    const { outcome, liftSuspension, clearRetentionHold } = parsed.data;
     const moderatorId = req.moderator!.moderatorId;
-    const result = await resolveEscalation(req.params.id as string, moderatorId, outcome, liftSuspension);
+    const result = await resolveEscalation(req.params.id as string, moderatorId, outcome, liftSuspension, clearRetentionHold);
     await auditModeratorAction(moderatorId, "resolve_escalation", {
       targetType: "report",
       targetId: req.params.id as string,
       ip: req.ip,
+      detail: clearRetentionHold ? "cleared_retention_hold" : undefined,
     });
     res.json(result);
   } catch (err) {

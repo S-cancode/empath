@@ -1,5 +1,4 @@
 import { prisma } from "../lib/prisma.js";
-import { setRetentionHold } from "../conversation/conversation.service.js";
 
 export interface CrisisEventInput {
   userId: string;
@@ -10,9 +9,12 @@ export interface CrisisEventInput {
 }
 
 /**
- * Persist a crisis event and place a retention hold on the conversation so
- * the record survives the retention worker. Without the hold, a crisis-flagged
- * conversation with no attached report would be deleted after 7 days.
+ * Persist a minimal crisis-signposting event (retained 12 months via
+ * deleteExpiredCrisisEvents). Automated keyword detection deliberately does NOT
+ * freeze the whole conversation: that would silently preserve all messages
+ * indefinitely on a keyword match, which the privacy notice does not disclose.
+ * The message content still follows the ordinary 7-day retention. Escalation by
+ * a human moderator is the path that applies a bounded safeguarding hold.
  */
 export async function recordCrisisEvent(input: CrisisEventInput): Promise<void> {
   await prisma.crisisEvent.create({
@@ -24,8 +26,4 @@ export async function recordCrisisEvent(input: CrisisEventInput): Promise<void> 
       resourcesShown: input.resourcesShown,
     },
   });
-
-  if (input.conversationId) {
-    await setRetentionHold(input.conversationId);
-  }
 }

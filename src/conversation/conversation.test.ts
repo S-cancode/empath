@@ -46,6 +46,9 @@ vi.mock("../lib/prisma.js", () => ({
     report: {
       findMany: vi.fn(),
     },
+    matchQualityLog: {
+      deleteMany: vi.fn(),
+    },
     user: {
       findUnique: vi.fn(),
     },
@@ -84,7 +87,9 @@ import {
   requestReconnect,
   autoArchiveStaleConversations,
   deleteExpiredMessages,
+  deleteExpiredMatchingData,
   setRetentionHold,
+  clearRetentionHold,
 } from "./conversation.service.js";
 import { encrypt } from "../lib/crypto.js";
 import { prisma } from "../lib/prisma.js";
@@ -420,117 +425,162 @@ describe("conversation.service", () => {
   });
 
   describe("deleteExpiredMessages", () => {
-    it("deletes old live-session messages and old async messages from inactive conversations", async () => {
+    it("deletes messages older than 7 days regardless of conversation status (active/archived/blocked)", async () => {
       (mockPrisma.report.findMany as any).mockResolvedValue([]);
-      (mockPrisma.conversation.findMany as any)
-        .mockResolvedValueOnce([]) // retention-held conversations
-        .mockResolvedValueOnce([{ id: "conv-archived" }]); // inactive conversations
-      (mockPrisma.message.deleteMany as any)
-        .mockResolvedValueOnce({ count: 8 }) // live-session deletes
-        .mockResolvedValueOnce({ count: 4 }); // async deletes in archived convs
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([]); // no holds
+      (mockPrisma.message.findMany as any).mockResolvedValueOnce([{ id: "m1" }, { id: "m2" }]);
+      (mockPrisma.message.deleteMany as any).mockResolvedValueOnce({ count: 2 });
 
-      const count = await deleteExpiredMessages(7, 30);
+      const count = await deleteExpiredMessages();
 
-      expect(count).toBe(12);
-      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(1, {
-        where: {
-          liveSessionId: { not: null },
-          sentAt: { lt: expect.any(Date) },
-        },
-      });
-      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(2, {
-        where: {
-          liveSessionId: null,
-          conversationId: { in: ["conv-archived"] },
-          sentAt: { lt: expect.any(Date) },
-        },
+      expect(count).toBe(2);
+      // No status filter, no liveSessionId filter — every message ≥7d old goes.
+      const where = (mockPrisma.message.findMany as any).mock.calls[0][0].where;
+      expect(where.sentAt).toEqual({ lt: expect.any(Date) });
+      expect(where.conversationId).toBeUndefined();
+      expect(where.status).toBeUndefined();
+      expect(where.liveSessionId).toBeUndefined();
+      expect(mockPrisma.message.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ["m1", "m2"] } },
       });
     });
 
-    it("protects messages in conversations with active reports", async () => {
-      (mockPrisma.report.findMany as any).mockResolvedValue([
-        { conversationId: "conv-reported" },
-      ]);
-      (mockPrisma.conversation.findMany as any)
-        .mockResolvedValueOnce([]) // retention-held conversations
-        .mockResolvedValueOnce([{ id: "conv-archived" }, { id: "conv-reported" }]);
-      (mockPrisma.message.deleteMany as any)
-        .mockResolvedValueOnce({ count: 3 })
-        .mockResolvedValueOnce({ count: 2 });
-
-      const count = await deleteExpiredMessages(7, 30);
-
-      expect(count).toBe(5);
-      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(1, {
-        where: {
-          liveSessionId: { not: null },
-          sentAt: { lt: expect.any(Date) },
-          conversationId: { notIn: ["conv-reported"] },
-        },
-      });
-      // Async pass excludes the reported conversation by filtering the inactive list.
-      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(2, {
-        where: {
-          liveSessionId: null,
-          conversationId: { in: ["conv-archived"] },
-          sentAt: { lt: expect.any(Date) },
-        },
-      });
-    });
-
-    it("skips async deletion when there are no inactive conversations", async () => {
+    it("uses a 7-day cutoff by default", async () => {
       (mockPrisma.report.findMany as any).mockResolvedValue([]);
       (mockPrisma.conversation.findMany as any).mockResolvedValue([]);
-      (mockPrisma.message.deleteMany as any).mockResolvedValueOnce({ count: 7 });
+      (mockPrisma.message.findMany as any).mockResolvedValueOnce([]);
 
-      const count = await deleteExpiredMessages(7, 30);
-
-      expect(count).toBe(7);
-      expect(mockPrisma.message.deleteMany).toHaveBeenCalledTimes(1);
+      await deleteExpiredMessages();
+      const cutoff: Date = (mockPrisma.message.findMany as any).mock.calls[0][0].where.sentAt.lt;
+      const days = (Date.now() - cutoff.getTime()) / (24 * 60 * 60 * 1000);
+      expect(days).toBeGreaterThan(6.9);
+      expect(days).toBeLessThan(7.1);
     });
 
-    it("never deletes messages in conversations under a retention hold", async () => {
+    it("protects messages in conversations with an active report", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([{ conversationId: "conv-reported" }]);
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([]);
+      (mockPrisma.message.findMany as any).mockResolvedValueOnce([{ id: "m1" }]);
+      (mockPrisma.message.deleteMany as any).mockResolvedValueOnce({ count: 1 });
+
+      await deleteExpiredMessages();
+
+      expect((mockPrisma.message.findMany as any).mock.calls[0][0].where.conversationId).toEqual({
+        notIn: ["conv-reported"],
+      });
+    });
+
+    it("protects a conversation with an UNEXPIRED safeguarding hold (retentionHoldUntil > now)", async () => {
       (mockPrisma.report.findMany as any).mockResolvedValue([]);
-      (mockPrisma.conversation.findMany as any)
-        .mockResolvedValueOnce([{ id: "conv-held" }]) // retention-held conversations
-        .mockResolvedValueOnce([{ id: "conv-held" }, { id: "conv-archived" }]);
-      (mockPrisma.message.deleteMany as any)
-        .mockResolvedValueOnce({ count: 3 })
-        .mockResolvedValueOnce({ count: 1 });
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([{ id: "conv-held" }]);
+      (mockPrisma.message.findMany as any).mockResolvedValueOnce([{ id: "m1" }]);
+      (mockPrisma.message.deleteMany as any).mockResolvedValueOnce({ count: 1 });
 
-      await deleteExpiredMessages(7, 30);
+      await deleteExpiredMessages();
 
-      expect(mockPrisma.conversation.findMany).toHaveBeenNthCalledWith(1, {
-        where: { retentionHold: true },
-        select: { id: true },
+      // The hold is filtered by an expiry timestamp, not a permanent boolean.
+      const holdWhere = (mockPrisma.conversation.findMany as any).mock.calls[0][0].where;
+      expect(holdWhere.retentionHoldUntil).toEqual({ gt: expect.any(Date) });
+      expect((mockPrisma.message.findMany as any).mock.calls[0][0].where.conversationId).toEqual({
+        notIn: ["conv-held"],
       });
-      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(1, {
-        where: {
-          liveSessionId: { not: null },
-          sentAt: { lt: expect.any(Date) },
-          conversationId: { notIn: ["conv-held"] },
-        },
+    });
+
+    it("is idempotent — deletes nothing when no messages are expired", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([]);
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([]);
+      (mockPrisma.message.findMany as any).mockResolvedValueOnce([]);
+
+      const count = await deleteExpiredMessages();
+      expect(count).toBe(0);
+      expect(mockPrisma.message.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("is bounded — deletes in batches and loops until drained", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([]);
+      (mockPrisma.conversation.findMany as any).mockResolvedValue([]);
+      const fullBatch = Array.from({ length: 1000 }, (_, i) => ({ id: `m${i}` }));
+      (mockPrisma.message.findMany as any)
+        .mockResolvedValueOnce(fullBatch) // exactly one batch → loop again
+        .mockResolvedValueOnce([]); // drained
+      (mockPrisma.message.deleteMany as any).mockResolvedValueOnce({ count: 1000 });
+
+      const count = await deleteExpiredMessages();
+      expect(count).toBe(1000);
+      expect((mockPrisma.message.findMany as any).mock.calls[0][0].take).toBe(1000);
+      expect(mockPrisma.message.findMany).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("deleteExpiredMatchingData (180-day)", () => {
+    it("nulls old matchContext and deletes old MatchQualityLog rows", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([]);
+      (mockPrisma.conversation.updateMany as any).mockResolvedValue({ count: 3 });
+      (mockPrisma.matchQualityLog.deleteMany as any).mockResolvedValue({ count: 5 });
+
+      const count = await deleteExpiredMatchingData();
+      expect(count).toBe(8);
+
+      const convWhere = (mockPrisma.conversation.updateMany as any).mock.calls[0][0].where;
+      expect(convWhere.createdAt).toEqual({ lt: expect.any(Date) });
+      expect(convWhere.matchContext).toBeDefined();
+      const convData = (mockPrisma.conversation.updateMany as any).mock.calls[0][0].data;
+      expect("matchContext" in convData).toBe(true);
+      expect((mockPrisma.matchQualityLog.deleteMany as any).mock.calls[0][0].where.matchedAt).toEqual({
+        lt: expect.any(Date),
       });
-      // Async pass drops the held conversation from the inactive list.
-      expect(mockPrisma.message.deleteMany).toHaveBeenNthCalledWith(2, {
-        where: {
-          liveSessionId: null,
-          conversationId: { in: ["conv-archived"] },
-          sentAt: { lt: expect.any(Date) },
-        },
+    });
+
+    it("uses a 180-day cutoff", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([]);
+      (mockPrisma.conversation.updateMany as any).mockResolvedValue({ count: 0 });
+      (mockPrisma.matchQualityLog.deleteMany as any).mockResolvedValue({ count: 0 });
+      await deleteExpiredMatchingData();
+      const cutoff: Date = (mockPrisma.matchQualityLog.deleteMany as any).mock.calls[0][0].where.matchedAt.lt;
+      const days = (Date.now() - cutoff.getTime()) / (24 * 60 * 60 * 1000);
+      expect(days).toBeGreaterThan(179.5);
+      expect(days).toBeLessThan(180.5);
+    });
+
+    it("does not null matchContext for a conversation with an active report", async () => {
+      (mockPrisma.report.findMany as any).mockResolvedValue([{ conversationId: "c1" }]);
+      (mockPrisma.conversation.updateMany as any).mockResolvedValue({ count: 0 });
+      (mockPrisma.matchQualityLog.deleteMany as any).mockResolvedValue({ count: 0 });
+      await deleteExpiredMatchingData();
+      expect((mockPrisma.conversation.updateMany as any).mock.calls[0][0].where.id).toEqual({
+        notIn: ["c1"],
       });
     });
   });
 
-  describe("setRetentionHold", () => {
-    it("sets the hold one-way: only flips conversations where it is not already set", async () => {
-      (mockPrisma.conversation.updateMany as any).mockResolvedValue({ count: 1 });
+  describe("setRetentionHold / clearRetentionHold (time-bounded)", () => {
+    it("sets a bounded hold with retentionHoldUntil in the future", async () => {
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({ retentionHoldUntil: null });
+      (mockPrisma.conversation.update as any).mockResolvedValue({});
 
       await setRetentionHold("conv-1");
 
-      expect(mockPrisma.conversation.updateMany).toHaveBeenCalledWith({
-        where: { id: "conv-1", retentionHold: false },
-        data: { retentionHold: true, retentionHoldAt: expect.any(Date) },
+      const call = (mockPrisma.conversation.update as any).mock.calls[0][0];
+      expect(call.where).toEqual({ id: "conv-1" });
+      expect(call.data.retentionHold).toBe(true);
+      expect(call.data.retentionHoldUntil).toBeInstanceOf(Date);
+      expect(call.data.retentionHoldUntil.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it("never shortens an existing longer hold", async () => {
+      const farFuture = new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000);
+      (mockPrisma.conversation.findUnique as any).mockResolvedValue({ retentionHoldUntil: farFuture });
+
+      await setRetentionHold("conv-1", 90);
+      expect(mockPrisma.conversation.update).not.toHaveBeenCalled();
+    });
+
+    it("clearRetentionHold releases the hold (returns to ordinary 7-day deletion)", async () => {
+      (mockPrisma.conversation.update as any).mockResolvedValue({});
+      await clearRetentionHold("conv-1");
+      expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
+        where: { id: "conv-1" },
+        data: { retentionHold: false, retentionHoldUntil: null },
       });
     });
   });

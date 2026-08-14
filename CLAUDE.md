@@ -42,7 +42,7 @@ cd client && npx expo export --platform ios
 | `matching/` | Postgres `match_queue_entries` (pgvector) + Redis zset queue; cosine top-20 → hybrid score (`sim*0.9 + waitBonus*0.1 − recentPenalty`, min 0.25); 7-day queue, 24h proposals w/ expiry re-queue, 48h wait ramp, 24h recent-match penalty; daily caps in Redis |
 | `chat/` | Socket.IO gateway (handshake = JWT + DB ban/suspension check), live sessions, in-memory message buffer, crisis-detection hook, per-user rate limit |
 | `conversation/` | Async threads (AES-256-GCM at rest), read receipts, archive/reconnect, nicknames, voice notes (validated → transcribed → moderated before delivery, fail-closed), auto-archive (hourly, 7d stale) + retention worker (6h) |
-| `safety/` | Crisis keyword/regex detection + resources; `crisis.service` (records CrisisEvent **and sets one-way retentionHold**); reports (re-encrypted conversation snapshot, priority, auto-block); user+device blocking; `enforcement.service` = the ONLY path for ban/suspend/lift (cross-instance socket disconnect via Redis `moderation:disconnect`) |
+| `safety/` | Crisis keyword/regex detection + resources; `crisis.service` (records a minimal CrisisEvent only — automated detection sets **no** conversation hold); reports (re-encrypted conversation snapshot, priority, auto-block); user+device blocking; `enforcement.service` = the ONLY path for ban/suspend/lift (cross-instance socket disconnect via Redis `moderation:disconnect`) |
 | `admin/` | Moderation dashboard (public HTML shell; data endpoints behind individual moderator sessions — email+password+TOTP login, append-only audit log) — queue, decrypted transcripts, reported-voice playback (audited), dismiss/warn/suspend/ban/escalate, escalation resolve, stats |
 | `compliance/` | Age/terms/consent recording (versioned canonical texts), DSAR export, complaints, account deletion, retention deletes |
 | `translate/` | Opt-in message translation via OpenAI; AES-encrypted Redis cache `translate:v2:` 24h TTL; local script heuristic for source-language tagging; NO LLM locale inference (removed for GDPR necessity) |
@@ -99,15 +99,15 @@ message buffer (live-session flush), matching worker (Redis pub/sub `queue:updat
 
 ## Database (see `prisma/schema.prisma` — authoritative)
 
-Highlights: `User` (deviceId identity, tier, banned/suspendedUntil, preferredLanguage/dialect, `autoTranslateEnabled` **default false — opt-in with recorded consent, never default true**), `Conversation` (**`retentionHold` one-way flag — set by crisis events + escalations, nothing may clear it**), `Report` (priority, conversationLog snapshot, escalation outcome fields), `Message` (AES fields, messageType text/voice, unused `flagged` column), `MatchQueueEntry` (**external table**, pgvector), `ModerationAction`, `CrisisEvent`, `BlockedUser` (user+device level), consent/terms/complaint records.
+Highlights: `User` (deviceId identity, tier, banned/suspendedUntil, preferredLanguage/dialect, `autoTranslateEnabled` **default false — opt-in with recorded consent, never default true**), `Conversation` (**`retentionHoldUntil` — time-BOUNDED safeguarding hold set by a moderator escalation only; auto-expires and is clearable via the audited resolve path; automated crisis detection never sets it**), `Report` (priority, conversationLog snapshot, escalation outcome fields), `Message` (AES fields, messageType text/voice, unused `flagged` column), `MatchQueueEntry` (**external table**, pgvector), `ModerationAction`, `CrisisEvent`, `BlockedUser` (user+device level), consent/terms/complaint records.
 
 ## Key invariants (do not regress)
 
 1. **Enforcement single path**: bans/suspensions/lifts only via `safety/enforcement.service.ts` (DB write + cross-instance disconnect). Admin module never touches `prisma.user` or io directly.
-2. **Retention hold is one-way**: no code path clears `retentionHold`. Resolving an escalation must not unfreeze evidence. Retention worker skips held conversations and pending/reviewing/escalated reports.
+2. **Retention hold is time-bounded**: a moderator escalation sets `retentionHoldUntil` (SAFEGUARDING_HOLD_DAYS = 90); the retention worker protects a conversation's messages only while `retentionHoldUntil > now`, plus any conversation with a pending/reviewing/escalated report. Automated crisis detection must NOT set a hold. The hold auto-expires and is clearable early only via the audited escalation-resolve path (`clearRetentionHold`). All message content otherwise deletes after 7 days regardless of conversation status; matchContext + MatchQualityLog are nulled/deleted after 180 days.
 3. **AI processor allowlist**: OpenAI only, fail-closed at boot; analyse strips PII first; translation requires opt-in recorded consent; no message content to LLMs outside the disclosed flows.
 4. **hnsw index**: never let a migration drop `match_queue_embedding_idx` (guard test + external-table config).
-5. **Escalate**: sets retention hold + 7-day interim suspension + founder push (`FOUNDER_PUSH_TOKENS`); resolution records outcome, may lift suspension, never clears hold.
+5. **Escalate**: sets a bounded 90-day retention hold + 7-day interim suspension + founder push (`FOUNDER_PUSH_TOKENS`); resolution records outcome, may lift suspension, and may clear the hold early (audited).
 
 ## Known blockers at 7c67525 (remediation in progress on `app-store-readiness` — see status doc)
 
