@@ -124,7 +124,7 @@ adminRouter.post("/reports/:id/escalation/resolve", async (req: Request, res: Re
 adminRouter.get("/reports/:id/voice/:messageId", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id, messageId } = req.params as { id: string; messageId: string };
-    const { base64Audio } = await getReportedVoiceAudio(id, messageId);
+    const { base64Audio, mimeType } = await getReportedVoiceAudio(id, messageId);
     await auditModeratorAction(req.moderator!.moderatorId, "play_reported_voice", {
       targetType: "message",
       targetId: messageId,
@@ -132,7 +132,8 @@ adminRouter.get("/reports/:id/voice/:messageId", async (req: Request, res: Respo
       ip: req.ip,
     });
     res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Content-Type", "audio/mp4");
+    // Server-determined from the decrypted bytes (WAV fixture vs real M4A).
+    res.setHeader("Content-Type", mimeType);
     res.send(Buffer.from(base64Audio, "base64"));
   } catch (err) {
     next(err);

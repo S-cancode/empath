@@ -37,7 +37,14 @@ The reviewer signs in with their **own** Apple ID and unlocks a scripted **demo 
 
 Note: the scripted demo messages and the seeded incoming voice note are operator-authored content inserted directly into the database — they do **not** pass through OpenAI transcription/moderation (there is no user-generated content to check). Everything **you** send as the reviewer does.
 
-**Owner prerequisite (not committed):** set `REVIEW_MODE=true` and a strong `REVIEW_ACCESS_CODE` (≥16 chars) on the review backend; build the client with the **`store-review`** EAS profile (`eas build -p ios --profile store-review`, which sets `EXPO_PUBLIC_REVIEW_MODE=true` and is a **store-distribution** artifact); put the reviewer Apple ID + the access code in App Store Connect review notes. See APP_STORE_EXTERNAL_BLOCKERS.md.
+**Owner prerequisite (not committed):** set `REVIEW_MODE=true` and a strong `REVIEW_ACCESS_CODE` (≥16 chars) on the review backend; build + submit the client with the **`store-review`** EAS profile:
+
+```
+eas build  --platform ios --profile store-review   # store-distribution, EXPO_PUBLIC_REVIEW_MODE=true, channel "store-review"
+eas submit --platform ios --profile store-review   # same ASC app/team as production
+```
+
+The `store-review` build uses a **dedicated EAS update channel (`store-review`)**, isolated from `production` OTA updates — so a normal production update can never replace the review JavaScript and hide the App Review Access UI. Do NOT run `eas update --channel store-review` unless you intend to update the review build. Put the reviewer Apple ID + the access code in App Store Connect review notes. See APP_STORE_EXTERNAL_BLOCKERS.md.
 
 ## Voice notes (safety model)
 - Recording requires: (1) accepting an in-app voice-privacy notice, then (2) granting microphone permission. Declining either leaves text chat fully usable.

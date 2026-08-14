@@ -4,6 +4,7 @@ import { config } from "../config/index.js";
 import { applyBan, applySuspension, liftSuspension } from "../safety/enforcement.service.js";
 import { setRetentionHold, clearRetentionHold } from "../conversation/conversation.service.js";
 import { NotFoundError, ValidationError } from "../shared/errors.js";
+import { sniffAudioMime, type AudioMime } from "../safety/audio-mime.js";
 
 // Escalations suspend the reported user for a fixed review window. If founders
 // never act, the suspension lapses rather than holding the user in limbo.
@@ -373,7 +374,7 @@ export async function resolveEscalation(
 export async function getReportedVoiceAudio(
   reportId: string,
   messageId: string,
-): Promise<{ base64Audio: string }> {
+): Promise<{ base64Audio: string; mimeType: AudioMime }> {
   const report = await prisma.report.findUnique({
     where: { id: reportId },
     select: { conversationId: true, reportedMessageId: true },
@@ -397,7 +398,14 @@ export async function getReportedVoiceAudio(
   }
 
   const base64Audio = decrypt({ ciphertext: message.content, iv: message.iv, authTag: message.authTag });
-  return { base64Audio };
+  // Determine the real container from the decrypted bytes (never a client
+  // value). Unsupported/malformed audio fails safe rather than being served
+  // under a guessed type.
+  const mimeType = sniffAudioMime(base64Audio);
+  if (!mimeType) {
+    throw new ValidationError("Unsupported audio format");
+  }
+  return { base64Audio, mimeType };
 }
 
 export async function getDashboardStats() {
