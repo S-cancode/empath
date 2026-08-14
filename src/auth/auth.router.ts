@@ -2,8 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { createAnonymousUser, refreshTokens, upgradeWithEmail, isAnonymousAuthAllowed } from "./auth.service.js";
 import { signInWithApple } from "./apple.service.js";
+import { handleAppleServerNotification, AppleNotificationError } from "./apple-notifications.js";
 import { authMiddleware } from "./auth.middleware.js";
-import { authLimiter } from "../shared/rate-limiter.js";
+import { authLimiter, appleNotifyLimiter } from "../shared/rate-limiter.js";
 import { ValidationError, ForbiddenError } from "../shared/errors.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -35,6 +36,26 @@ router.post("/apple", authLimiter, async (req, res, next) => {
     );
     res.json(result);
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Sign in with Apple server-to-server notifications (public, no user auth —
+ * authenticity comes from Apple's JWT signature). Apple POSTs { payload: JWT }.
+ * We ack 200 for anything we verified (including irrelevant events / unknown
+ * subs, to avoid disclosure); a cryptographically invalid/malformed payload
+ * gets 400 with no mutation.
+ */
+router.post("/apple/notifications", appleNotifyLimiter, async (req, res, next) => {
+  try {
+    await handleAppleServerNotification(req.body?.payload);
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    if (err instanceof AppleNotificationError) {
+      res.status(400).json({ error: "invalid_notification" });
+      return;
+    }
     next(err);
   }
 });

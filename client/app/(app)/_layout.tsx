@@ -6,6 +6,7 @@ import { useConversationsStore } from "@/stores/conversations.store";
 import { useRegisterPushToken } from "@/hooks/useRegisterPushToken";
 import { useNotificationNavigation } from "@/hooks/useNotificationNavigation";
 import { useLocaleBootstrap } from "@/hooks/useLocaleBootstrap";
+import { useAppleCredentialCheck } from "@/hooks/useAppleCredentialCheck";
 import { useSocket } from "@/providers/SocketProvider";
 import { MatchProposalModal } from "@/components/match/MatchProposalModal";
 import { queryClient } from "@/providers/QueryProvider";
@@ -17,6 +18,7 @@ export default function AppLayout() {
   useRegisterPushToken();
   useNotificationNavigation();
   useLocaleBootstrap();
+  useAppleCredentialCheck();
 
   const router = useRouter();
   const { socket } = useSocket();
