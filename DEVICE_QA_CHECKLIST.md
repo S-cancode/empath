@@ -37,9 +37,13 @@ Native QA for the v1 build. **Every item is pending until a person executes it o
 - [ ] Crisis phrase shows resources privately to the sender; country selection changes the resource set; unknown country → international fallback.
 - [ ] Archive / reconnect flow.
 - [ ] Account deletion (Profile) removes access; a deleted account cannot be resurrected on re-sign-in.
+- [ ] Account deletion with Apple credentials configured revokes Sign in with Apple (the app says deleted with no manual step); with a legacy/unconfigured account it deletes locally AND shows the manual "Stop Using Apple ID" guidance (never a false "revoked").
 
-## Reviewer demo path (review build)
-- [ ] Review build (`EXPO_PUBLIC_REVIEW_MODE=true`, allowlisted Apple ID) shows the "Demo Peer (scripted…)" conversation in Inbox on launch; a non-reviewer build/account does not.
+## Reviewer demo path (store-review build)
+- [ ] Build with the `store-review` EAS profile (store distribution, `EXPO_PUBLIC_REVIEW_MODE=true`). In a non-review build, Profile shows NO "App Review Access" row.
+- [ ] With `REVIEW_MODE=true` + a `REVIEW_ACCESS_CODE` set on the backend: Profile → App Review Access → enter the code → a "Demo Peer (scripted…)" conversation appears in the Inbox. A wrong code is rejected; before redeeming, no demo conversation exists.
+- [ ] The demo conversation contains a playable incoming voice note; long-press it → Report; the moderator dashboard can play only that exact reported note.
+- [ ] Report or Block the demo peer, then force-quit and relaunch — the conversation stays blocked/terminal (no new active demo relationship is created).
 
 ## Soak (unpaid TestFlight)
 - [ ] Internal TestFlight distribution to a small unpaid group (no compensation — Apple 2.2). Watch Sentry + backend logs over ~48h for crashes, stuck sends, moderation errors.
