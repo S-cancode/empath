@@ -3,7 +3,10 @@ name: CI
 on:
   push:
     branches: [main, app-store-readiness]
+  # `edited` is included so retargeting a PR's base branch re-runs CI against
+  # the new base (default pull_request types don't fire on a base change).
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   backend:

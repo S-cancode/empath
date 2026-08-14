@@ -415,7 +415,16 @@ export async function deleteAccount(
   // cannot be blocked by a third party. The outcome is reported truthfully so
   // the client can show manual-revocation guidance when needed.
   let appleRevocation: AppleRevocationOutcome = "not_applicable";
-  const appleRefreshToken = decryptAppleRefreshToken(user);
+  // Decryption can throw (bad auth tag, rotated ENCRYPTION_KEY, corrupt
+  // ciphertext). Erasure must NEVER be blocked by that — fall back to
+  // "unavailable" (manual guidance) and continue.
+  let appleRefreshToken: string | null = null;
+  try {
+    appleRefreshToken = decryptAppleRefreshToken(user);
+  } catch (err) {
+    console.error("[apple] could not read stored token during deletion:", (err as Error).message);
+    appleRefreshToken = null;
+  }
   if (appleRefreshToken && isAppleServerConfigured()) {
     try {
       await revokeRefreshToken(appleRefreshToken);

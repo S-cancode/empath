@@ -97,9 +97,15 @@ export function VoiceMessageBubble({
         playsInSilentModeIOS: true,
       });
 
-      // Write base64 to a temp file for AVPlayer playback
-      const tmpFile = new File(Paths.cache, `voice_${Date.now()}.m4a`);
+      // Write base64 to a temp file for AVPlayer playback. Real voice notes are
+      // AAC/m4a, but the App Review demo seeds a RIFF/WAVE clip — pick the
+      // extension from the actual header so AVFoundation loads either reliably.
       const bytes = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
+      const isWav =
+        bytes.length >= 12 &&
+        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && // "RIFF"
+        bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45; // "WAVE"
+      const tmpFile = new File(Paths.cache, `voice_${Date.now()}.${isWav ? "wav" : "m4a"}`);
       tmpFile.write(bytes);
       tmpFileRef.current = tmpFile;
 

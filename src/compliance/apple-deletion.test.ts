@@ -104,6 +104,23 @@ describe("account deletion — Apple revocation lifecycle", () => {
     expect(mockRevoke).not.toHaveBeenCalled();
   });
 
+  it("an undecryptable stored token never blocks erasure (falls back to 'unavailable')", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", appleSub: "apple-1" });
+    mockConfigured.mockReturnValue(true);
+    // Corrupt ciphertext / rotated key → decrypt throws.
+    mockDecrypt.mockImplementation(() => {
+      throw new Error("Unsupported state or unable to authenticate data");
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await deleteAccount("u1");
+    expect(result).toEqual({ appleRevocation: "unavailable" });
+    expect(mockRevoke).not.toHaveBeenCalled();
+    // Erasure still ran despite the decrypt failure.
+    expect(mockPrisma.$transaction).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
   it("clears the encrypted Apple token columns during erasure", async () => {
     mockPrisma.user.findUnique.mockResolvedValue({ id: "u1", appleSub: "apple-1" });
     mockDecrypt.mockReturnValue("apple-refresh-token");

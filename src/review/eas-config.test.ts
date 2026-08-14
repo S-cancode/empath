@@ -53,6 +53,18 @@ describe("eas.json — App Store review build profile", () => {
     expect(env.EXPO_PUBLIC_REVIEW_MODE).toBe("true");
   });
 
+  it("store-review keeps the production release settings (autoIncrement, channel, Sentry)", () => {
+    // Dropping autoIncrement causes duplicate-build-number rejection at ASC;
+    // wrong channel/DSN sends the review build to the wrong OTA/diagnostics.
+    const prof = eas.build["store-review"];
+    const inherited = eas.build[prof.extends ?? ""] ?? {};
+    const autoIncrement = prof.autoIncrement ?? (inherited as any).autoIncrement;
+    const channel = prof.channel ?? (inherited as any).channel;
+    expect(autoIncrement).toBe(true);
+    expect(channel).toBe("production");
+    expect(resolveProfile("store-review").env.EXPO_PUBLIC_SENTRY_DSN).toBeTruthy();
+  });
+
   it("no build profile compiles a review access secret into the client", () => {
     for (const [name, prof] of Object.entries(eas.build)) {
       for (const key of Object.keys(prof.env ?? {})) {

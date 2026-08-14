@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import { verifyAccessToken } from "../auth/auth.service.js";
 import { bufferMessage, endLiveSession, extendLiveSession, startLiveSession } from "./chat.service.js";
 import { sendAsyncMessage, sendVoiceNote, markDelivered, markRead } from "../conversation/conversation.service.js";
+import { moderateText } from "../safety/content-moderation.service.js";
 import { setOnline, setOffline, isOnline, getPartnerIdsForUser } from "../presence/presence.service.js";
 import { emitNotification, notificationBus } from "../notifications/notification.service.js";
 import type { NotificationEvent } from "../notifications/notification.service.js";
@@ -560,6 +561,16 @@ export function setupChatGateway(io: Server): void {
       }
 
       await handleCrisisDetection(io, socket, userId, data.content, data.conversationId, data.liveSessionId);
+
+      // Pre-delivery moderation applies to EVERY outgoing text message,
+      // including real-time live-session chat (Apple 1.2; matches the privacy
+      // disclosure). Fail-closed: a blocked/quarantined message is never
+      // buffered or emitted to the peer.
+      const moderation = await moderateText(data.content);
+      if (!moderation.allowed) {
+        socket.emit("error", { message: "Message not delivered" });
+        return;
+      }
 
       bufferMessage(data.conversationId, userId, data.content, data.liveSessionId);
 
