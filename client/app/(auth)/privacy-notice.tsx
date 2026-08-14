@@ -27,7 +27,7 @@ export default function PrivacyNoticeScreen() {
           Empath is operated by Empath Ltd, registered at 47 Meadway, London,
           N14 6NJ.{"\n\n"}
           Data protection lead: Dr Rohan Choudhari.{"\n"}
-          Contact: privacy@empath.app
+          Contact: help@empathapp.co.uk
         </Text>
 
         <Text style={styles.sectionTitle} accessibilityRole="header">2. What Data We Collect</Text>
@@ -60,7 +60,7 @@ export default function PrivacyNoticeScreen() {
         <Text style={styles.body}>
           {"\u2022"} Other users (your matched peer, in chat only \u2014 they see your nickname, never your name, email, or Apple ID){"\n"}
           {"\u2022"} Our trained moderators, but only for a conversation you or your peer reports, or one preserved for a safety review (limited, logged access){"\n"}
-          {"\u2022"} AI provider \u2014 OpenAI, servers in the United States: a version of your matching text with identifying details removed (for matching and safety); the content of a voice note you send (transcribed to check it for safety before delivery \u2014 the transcript is discarded after the check and never shown to anyone); and, only if you turn on auto-translate, the content of your chat messages for translation{"\n"}
+          {"\u2022"} AI provider \u2014 OpenAI, servers in the United States. We send: (a) a version of your matching text with identifying details removed, for matching analysis; (b) every chat message you send, to OpenAI's moderation service for a safety check before it is delivered to your peer; (c) the audio of any voice note you send, which is transcribed and the transcript safety-checked before delivery \u2014 the transcript is discarded after the check and never shown to anyone; and (d) only if you turn on auto-translate, the content of your chat messages for translation{"\n"}
           {"\u2022"} Hosting provider (for infrastructure){"\n"}
           {"\u2022"} Push notification services (Apple/Expo) \u2014 only a neutral "new message" alert with no message content{"\n"}
           {"\u2022"} Law enforcement (if legally compelled)
@@ -89,11 +89,13 @@ export default function PrivacyNoticeScreen() {
 
         <Text style={styles.sectionTitle} accessibilityRole="header">6. International Transfers</Text>
         <Text style={styles.body}>
-          To analyse your text for matching and safety purposes, we send a
-          pre-processed version (with identifying details removed) to our AI
-          provider, whose servers are located in the United States. This
-          transfer is protected by Standard Contractual Clauses. All other data
-          is processed and stored within the United Kingdom.
+          Some processing happens at our AI provider (OpenAI), whose servers are
+          in the United States: an identity-stripped version of your matching
+          text (for matching), the full content of each chat message (for the
+          pre-delivery safety check), and voice-note audio (transcribed for that
+          check, then discarded). These transfers are protected by Standard
+          Contractual Clauses. All other data is processed and stored within the
+          United Kingdom.
         </Text>
 
         <Text style={styles.sectionTitle} accessibilityRole="header">7. Your Rights</Text>

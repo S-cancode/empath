@@ -135,6 +135,16 @@ export default function AppLayout() {
           }}
         />
         <Stack.Screen
+          name="review-access"
+          options={{
+            title: "App Review Access",
+            headerBackTitle: "Back",
+            headerStyle: { backgroundColor: "transparent" },
+            headerShadowVisible: false,
+            headerTintColor: colors.text,
+          }}
+        />
+        <Stack.Screen
           name="archived/index"
           options={{
             title: "Archived",

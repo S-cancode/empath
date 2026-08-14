@@ -35,6 +35,11 @@ export async function withdrawConsent(): Promise<void> {
   await apiClient.post("/compliance/consent/withdraw");
 }
 
-export async function deleteAccount(): Promise<void> {
-  await apiClient.delete("/compliance/account");
+export type AppleRevocation = "revoked" | "failed" | "unavailable" | "not_applicable";
+
+export async function deleteAccount(): Promise<{ appleRevocation: AppleRevocation }> {
+  const { data } = await apiClient.delete<{ appleRevocation?: AppleRevocation }>(
+    "/compliance/account"
+  );
+  return { appleRevocation: data?.appleRevocation ?? "not_applicable" };
 }

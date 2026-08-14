@@ -19,22 +19,25 @@ Empath is an adults-only (18+) peer emotional-support app: users are matched by 
 10. **Account deletion** in Profile (right to erasure) — in-app, immediate.
 
 ## Deterministic reviewer path (no live peer required) — IMPLEMENTED
-The reviewer does not need to wait for a real match. A scripted **demo conversation** is provisioned automatically for the allowlisted reviewer account and appears in the normal Inbox.
-
-**How it works (server-gated, secure):**
-- Disabled by default. Active only when the server runs with `REVIEW_MODE=true`.
-- Restricted to allowlisted reviewer Apple IDs via `REVIEW_APPLE_SUBS` (comma-separated Apple `sub` values) — the server checks the *persisted* Apple sub, never a client flag.
-- On launch, a review build (`EXPO_PUBLIC_REVIEW_MODE=true`) calls `POST /review/demo-conversation`. Non-reviewers get 404; the reviewer gets an isolated conversation with a demo peer aliased **"Demo Peer (scripted, not a real person)"**. Idempotent.
-- The demo peer never enters the real matching queue and is isolated from real users. Text/voice send, exact-message report, moderator playback, block, crisis, archive and account deletion all run through the **production** code paths.
+The reviewer signs in with their **own** Apple ID and unlocks a scripted **demo conversation** by entering an access code (supplied below in App Review notes). No live peer, and no need for us to know the reviewer's Apple account in advance.
 
 **Reviewer steps (~5 min):**
-1. Sign in with Apple; complete age (18+), Terms, and consent.
-2. Open the **Demo Peer** conversation in the Inbox (auto-created).
-3. Send a text message; send a voice note (observe it is transcribed + safety-checked before delivery).
-4. Long-press a message → **Report**; long-press the demo peer's voice note → Report (moderators can then play only that exact note).
-5. **Block** the demo peer; open **Profile** → structured match preferences visible on a new match; **Delete Account**.
+1. **Sign in with Apple** (your own Apple ID); complete age (18+), Terms, and consent.
+2. Go to **Profile → App Review Access**, enter the **access code** from App Review notes, and tap Redeem.
+3. A scripted conversation with **"Demo Peer (scripted, not a real person)"** appears in the **Inbox**. Open it.
+4. Play the demo peer's **voice note**; send your own text and a voice note (each is safety-checked before delivery).
+5. Long-press a message → **Report**; long-press the demo peer's voice note → **Report** (a moderator can then play back only that exact note).
+6. **Block** the demo peer, then relaunch — the demo conversation stays blocked (the block is not undone). **Delete Account** from Profile.
 
-**Owner prerequisite (not committed):** set `REVIEW_MODE=true` and `REVIEW_APPLE_SUBS=<reviewer Apple sub>` on the review backend, build the client with `EXPO_PUBLIC_REVIEW_MODE=true`, and submit the reviewer Apple ID credentials in App Store Connect. See APP_STORE_EXTERNAL_BLOCKERS.md.
+**How it works (server-gated, secure, non-circular):**
+- Disabled by default. Active only when the backend runs with `REVIEW_MODE=true`.
+- The reviewer redeems the code (`POST /review/redeem`): the code is verified **server-side** in constant time against `REVIEW_ACCESS_CODE`, rate-limited, and never stored in the app binary. Success creates a **durable review grant** tied to the reviewer's account, so the code is entered once.
+- With a grant, `POST /review/demo-conversation` returns an isolated conversation with the demo peer; everyone else gets 404. Provisioning is idempotent, transactional and concurrency-safe (unique `review_key`), and preserves block/report state across relaunch.
+- The demo peer never enters the real matching queue. Text/voice send, exact-message report, moderator playback, block, crisis, archive and account deletion all run through the **production** code paths.
+
+Note: the scripted demo messages and the seeded incoming voice note are operator-authored content inserted directly into the database — they do **not** pass through OpenAI transcription/moderation (there is no user-generated content to check). Everything **you** send as the reviewer does.
+
+**Owner prerequisite (not committed):** set `REVIEW_MODE=true` and a strong `REVIEW_ACCESS_CODE` (≥16 chars) on the review backend; build the client with the **`store-review`** EAS profile (`eas build -p ios --profile store-review`, which sets `EXPO_PUBLIC_REVIEW_MODE=true` and is a **store-distribution** artifact); put the reviewer Apple ID + the access code in App Store Connect review notes. See APP_STORE_EXTERNAL_BLOCKERS.md.
 
 ## Voice notes (safety model)
 - Recording requires: (1) accepting an in-app voice-privacy notice, then (2) granting microphone permission. Declining either leaves text chat fully usable.
@@ -49,15 +52,17 @@ The reviewer does not need to wait for a real match. A scripted **demo conversat
 | Processor | Data | Purpose |
 |---|---|---|
 | Apple (Sign in with Apple) | Apple user identifier (`sub`), optional relay email | Account creation/security; not shown to peers |
-| OpenAI (US) | PII-stripped matching text; **voice-note audio → transcript** (discarded after safety check, not stored by Empath); message content **only if** auto-translate is on | Matching analysis, pre-delivery voice moderation, optional translation |
+| OpenAI (US) | PII-stripped matching text; **every outgoing text message** (moderation); **voice-note audio → transcript** (moderation, transcript discarded, not stored); message content **additionally** when auto-translate is on | Matching analysis, pre-delivery text + voice moderation, optional translation |
 | Sentry (EU ingest) | Crash/diagnostic data (no message content) | Diagnostics |
 | Expo / APNs | Device push token | Neutral push delivery |
 | Railway | Encrypted app data at rest | Hosting |
 
-Empath does not retain voice transcripts. **Provider-side retention / zero-data-retention for OpenAI (including transcription inputs) is not yet confirmed in writing** — tracked as an external blocker; do not represent it as complete.
+Empath does not retain voice transcripts. **Provider-side retention / zero-data-retention for OpenAI (including moderation and transcription inputs) is not yet confirmed in writing** — tracked as an external blocker; do not represent it as complete.
 
 ## Known reviewer-facing notes
 - iPhone-only: `supportsTablet` is `false`; the app targets iPhone for v1.
+- The app the reviewer should be given is built with the **`store-review`** EAS profile (store distribution, review mode on). The internal `preview`/`review` profiles are for internal QA only and cannot be submitted.
+- **Account deletion + Apple:** deletion erases the account immediately and attempts to revoke Sign in with Apple access server-side. If revocation can't be completed (e.g. a legacy account or a transient Apple error), the app says so and gives manual steps (Settings → Apple ID → Sign in with Apple → Empath → Stop Using) — it never falsely claims Apple access was revoked.
 - Guideline 1.2: the app materially implements operator-known identity, structured matching, pre-delivery filtering (text and voice), durable block/report, human moderation, and no public discovery.
 
 ## Support / moderation contact

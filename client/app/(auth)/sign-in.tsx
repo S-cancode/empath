@@ -45,7 +45,13 @@ export default function SignInScreen() {
         throw new Error("Apple did not return an identity token. Please try again.");
       }
       const deviceId = await getDeviceId();
-      const response = await signInWithApple(credential.identityToken, deviceId);
+      // authorizationCode is present on first consent (and repeat logins);
+      // Apple may omit it on silent re-auth — the server handles either case.
+      const response = await signInWithApple(
+        credential.identityToken,
+        deviceId,
+        credential.authorizationCode,
+      );
       await completeSignIn(response);
     } catch (err: any) {
       // User dismissed the Apple sheet — not an error.
