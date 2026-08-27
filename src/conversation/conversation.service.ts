@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { redis } from "../lib/redis.js";
 import { encrypt, decrypt } from "../lib/crypto.js";
@@ -549,25 +550,37 @@ export async function autoArchiveStaleConversations(staleDays = 7): Promise<numb
   return result.count;
 }
 
+// Disclosed retention periods — the single source of truth the privacy notice,
+// public policy and App Review notes must match.
+export const MESSAGE_RETENTION_DAYS = 7;
+export const MATCHING_DATA_RETENTION_DAYS = 180;
+// Defined safeguarding hold applied by a moderator ESCALATION (not by automated
+// crisis detection). Bounded and clearable via the audited resolve path.
+export const SAFEGUARDING_HOLD_DAYS = 90;
+
+const DELETE_BATCH_SIZE = 1000;
+
 /**
- * Retention policy:
- * - Live-session messages (has liveSessionId) are transient: deleted after `liveSessionRetentionDays`.
- * - Async messages in archived/blocked conversations: deleted after `archivedRetentionDays` past archive.
- *   We approximate archive time by using the message's sentAt (no per-conversation archivedAt column).
- * - Async messages in active conversations are preserved (persistent async threads).
- * - Messages in conversations with pending/reviewing reports are never deleted.
- * - Messages in conversations under a retention hold (escalations, crisis events)
- *   are never deleted.
+ * Message retention (text AND voice — voice audio lives in Message.content, so
+ * deleting the row deletes the encrypted payload):
+ * - Every message (live-session or async) is deleted `MESSAGE_RETENTION_DAYS`
+ *   after it was sent, regardless of whether the conversation is active,
+ *   archived or blocked. The conversation relationship is kept; only message
+ *   content rows are removed.
+ * - Exceptions (content preserved): a conversation with an OPEN report
+ *   (pending/reviewing/escalated), or an unexpired safeguarding hold
+ *   (retentionHoldUntil > now). Automated crisis detection alone does NOT
+ *   preserve conversation content.
+ *
+ * Bounded + idempotent: deletes in batches of DELETE_BATCH_SIZE so it never
+ * takes a table-wide lock, and re-running deletes nothing already gone.
  */
 export async function deleteExpiredMessages(
-  liveSessionRetentionDays = 7,
-  archivedRetentionDays = 30,
+  retentionDays = MESSAGE_RETENTION_DAYS,
 ): Promise<number> {
-  const liveCutoff = new Date();
-  liveCutoff.setDate(liveCutoff.getDate() - liveSessionRetentionDays);
-
-  const archivedCutoff = new Date();
-  archivedCutoff.setDate(archivedCutoff.getDate() - archivedRetentionDays);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+  const now = new Date();
 
   const activeReports = await prisma.report.findMany({
     where: { status: { in: ["pending", "reviewing", "escalated"] } },
@@ -575,7 +588,7 @@ export async function deleteExpiredMessages(
     distinct: ["conversationId" as const],
   });
   const heldConversations = await prisma.conversation.findMany({
-    where: { retentionHold: true },
+    where: { retentionHoldUntil: { gt: now } },
     select: { id: true },
   });
   const protectedIds = [
@@ -585,48 +598,97 @@ export async function deleteExpiredMessages(
     ]),
   ];
 
-  // 1. Delete old live-session messages (not in a protected conversation).
-  const liveWhere: Record<string, unknown> = {
-    liveSessionId: { not: null },
-    sentAt: { lt: liveCutoff },
-  };
+  const where: Record<string, unknown> = { sentAt: { lt: cutoff } };
   if (protectedIds.length > 0) {
-    liveWhere.conversationId = { notIn: protectedIds };
+    where.conversationId = { notIn: protectedIds };
   }
-  const liveResult = await prisma.message.deleteMany({ where: liveWhere as never });
 
-  // 2. Delete old async messages only if their conversation is archived or blocked.
-  const inactiveConversations = await prisma.conversation.findMany({
-    where: { status: { in: ["archived", "blocked"] } },
-    select: { id: true },
-  });
-  const inactiveIds = inactiveConversations
-    .map((c) => c.id)
-    .filter((id) => !protectedIds.includes(id));
-
-  let asyncCount = 0;
-  if (inactiveIds.length > 0) {
-    const asyncResult = await prisma.message.deleteMany({
-      where: {
-        liveSessionId: null,
-        conversationId: { in: inactiveIds },
-        sentAt: { lt: archivedCutoff },
-      },
+  let total = 0;
+  for (;;) {
+    const batch = await prisma.message.findMany({
+      where: where as never,
+      select: { id: true },
+      take: DELETE_BATCH_SIZE,
     });
-    asyncCount = asyncResult.count;
+    if (batch.length === 0) break;
+    const res = await prisma.message.deleteMany({
+      where: { id: { in: batch.map((m) => m.id) } },
+    });
+    total += res.count;
+    if (batch.length < DELETE_BATCH_SIZE) break;
   }
-
-  return liveResult.count + asyncCount;
+  return total;
 }
 
 /**
- * One-way retention hold: preserves a conversation's messages indefinitely for
- * moderation/safeguarding review. Deliberately no counterpart that clears the
- * flag — resolving an escalation must not unfreeze the record.
+ * Anonymised matching-data cleanup (disclosed 180-day period): nulls
+ * Conversation.matchContext on conversations older than the cutoff (the row is
+ * kept for relational integrity) and deletes MatchQualityLog rows older than the
+ * cutoff. Conversations with an OPEN report keep matchContext until the report
+ * closes (documented exception). Bounded + idempotent.
  */
-export async function setRetentionHold(conversationId: string): Promise<void> {
-  await prisma.conversation.updateMany({
-    where: { id: conversationId, retentionHold: false },
-    data: { retentionHold: true, retentionHoldAt: new Date() },
+export async function deleteExpiredMatchingData(
+  retentionDays = MATCHING_DATA_RETENTION_DAYS,
+): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+
+  const activeReports = await prisma.report.findMany({
+    where: { status: { in: ["pending", "reviewing", "escalated"] } },
+    select: { conversationId: true },
+    distinct: ["conversationId" as const],
+  });
+  const protectedIds = activeReports.map((r) => r.conversationId);
+
+  const convWhere: Record<string, unknown> = {
+    createdAt: { lt: cutoff },
+    matchContext: { not: Prisma.JsonNull },
+  };
+  if (protectedIds.length > 0) convWhere.id = { notIn: protectedIds };
+
+  const convResult = await prisma.conversation.updateMany({
+    where: convWhere as never,
+    data: { matchContext: Prisma.JsonNull },
+  });
+
+  const logResult = await prisma.matchQualityLog.deleteMany({
+    where: { matchedAt: { lt: cutoff } },
+  });
+
+  return convResult.count + logResult.count;
+}
+
+/**
+ * Apply a time-BOUNDED safeguarding hold. Set only by a moderator escalation
+ * (never automated crisis detection). Protects message content from the 7-day
+ * cleanup until `holdDays` from now. Extends (never shortens) an existing hold.
+ */
+export async function setRetentionHold(
+  conversationId: string,
+  holdDays = SAFEGUARDING_HOLD_DAYS,
+): Promise<void> {
+  const until = new Date();
+  until.setDate(until.getDate() + holdDays);
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { retentionHoldUntil: true },
+  });
+  // Never shorten an existing, longer hold.
+  if (conv?.retentionHoldUntil && conv.retentionHoldUntil > until) return;
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { retentionHold: true, retentionHoldAt: new Date(), retentionHoldUntil: until },
+  });
+}
+
+/**
+ * Clear a safeguarding hold early. Called ONLY from the audited escalation-
+ * resolve path so evidence is never released silently. After clearing, the
+ * conversation's messages return to the ordinary 7-day deletion schedule.
+ */
+export async function clearRetentionHold(conversationId: string): Promise<void> {
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { retentionHold: false, retentionHoldUntil: null },
   });
 }

@@ -70,9 +70,9 @@ export default function PrivacyNoticeScreen() {
         <Text style={styles.body}>
           {"\u2022"} Free-text prompts: Deleted after matching (within minutes){"\n"}
           {"\u2022"} Anonymised matching data: Up to 180 days, then permanently deleted{"\n"}
-          {"\u2022"} Chat messages: Encrypted at rest; automatically deleted after 7 days; messages related to an active report, or preserved for safeguarding or moderation review, are retained for as long as that purpose requires; deleted immediately on account deletion{"\n"}
+          {"\u2022"} Chat messages: Encrypted at rest; automatically deleted after 7 days. Messages in a conversation with an open report are kept until that report is resolved; a safeguarding escalation by our moderators can extend retention for up to 90 days. Automated crisis-keyword detection alone does not extend message retention. Deleted immediately on account deletion{"\n"}
           {"\u2022"} Translated message text (auto-translate users only): Cached in encrypted form for up to 24 hours, then deleted{"\n"}
-          {"\u2022"} Voice notes: Encrypted at rest and handled like other chat messages (7-day deletion, retained while reported or under safety review). The temporary transcript used for the safety check is discarded immediately and never stored{"\n"}
+          {"\u2022"} Voice notes: Encrypted at rest and handled like other chat messages (7-day deletion, with the same open-report and up-to-90-day safeguarding-escalation exceptions). The temporary transcript used for the safety check is discarded immediately and never stored{"\n"}
           {"\u2022"} Crisis signposting logs: 12 months, then deleted{"\n"}
           {"\u2022"} Account data: Retained until account deletion{"\n"}
           {"\u2022"} Device identifiers and IP addresses: Retained for the lifetime of the account; deleted within 30 days of account deletion{"\n"}

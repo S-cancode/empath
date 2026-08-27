@@ -204,7 +204,7 @@ export async function withdrawConsent(userId: string): Promise<void> {
  * Order: sessions die, matching state goes, cache clears, sockets drop —
  * so an already-open client is rejected on its next action.
  */
-async function complianceRevocationCascade(userId: string): Promise<void> {
+export async function complianceRevocationCascade(userId: string): Promise<void> {
   await revokeUserSessions(userId);
   await evictFromMatching(userId);
   invalidateComplianceCache(userId);

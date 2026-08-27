@@ -30,6 +30,17 @@ export const reviewLimiter = rateLimit({
   message: { error: "Too many attempts, try again later" },
 });
 
+// Apple server-to-server notifications: lenient (Apple batches + retries with
+// backoff), but bounded so a forged flood can't hammer the endpoint.
+export const appleNotifyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisStore("apple-notify"),
+  message: { error: "rate_limited" },
+});
+
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,

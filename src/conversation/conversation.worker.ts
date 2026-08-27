@@ -1,4 +1,4 @@
-import { autoArchiveStaleConversations, deleteExpiredMessages } from "./conversation.service.js";
+import { autoArchiveStaleConversations, deleteExpiredMessages, deleteExpiredMatchingData } from "./conversation.service.js";
 import {
   deleteExpiredCrisisEvents,
   deleteExpiredReports,
@@ -39,8 +39,11 @@ export function startRetentionWorker(): void {
   console.log("Retention worker started");
   retentionTimer = setInterval(async () => {
     try {
-      const msgCount = await deleteExpiredMessages(7);
+      const msgCount = await deleteExpiredMessages();
       if (msgCount > 0) console.log(`Deleted ${msgCount} expired messages`);
+
+      const matchingCount = await deleteExpiredMatchingData();
+      if (matchingCount > 0) console.log(`Cleaned ${matchingCount} expired matching-data records`);
 
       const crisisCount = await deleteExpiredCrisisEvents();
       if (crisisCount > 0) console.log(`Deleted ${crisisCount} expired crisis events`);

@@ -119,10 +119,15 @@ model Conversation {
   rawPromptCipher  String?   @map("raw_prompt_cipher")
   rawPromptIv      String?   @map("raw_prompt_iv")
   rawPromptAuthTag String?   @map("raw_prompt_auth_tag")
-  // One-way preservation flag: set by escalation and crisis events, never cleared.
-  // The retention worker must skip any conversation with this set.
-  retentionHold    Boolean   @default(false) @map("retention_hold")
-  retentionHoldAt  DateTime? @map("retention_hold_at")
+  // Time-BOUNDED safeguarding hold. A moderator escalation (never automated
+  // crisis-keyword detection) sets retentionHoldUntil to a defined future date;
+  // message content is protected from the 7-day cleanup only while
+  // retentionHoldUntil > now. Clearable early through the audited escalation-
+  // resolve path. retentionHold/retentionHoldAt are kept for display/audit but
+  // the active protection is driven by retentionHoldUntil.
+  retentionHold      Boolean   @default(false) @map("retention_hold")
+  retentionHoldAt    DateTime? @map("retention_hold_at")
+  retentionHoldUntil DateTime? @map("retention_hold_until")
   createdAt        DateTime  @default(now()) @map("created_at")
   lastMessageAt    DateTime? @map("last_message_at")
 
@@ -137,6 +142,7 @@ model Conversation {
   @@index([userAId])
   @@index([userBId])
   @@index([status])
+  @@index([createdAt])
   @@map("conversations")
 }
 
@@ -200,6 +206,7 @@ model Message {
   @@index([conversationId, sentAt])
   @@index([senderId])
   @@index([deliveryStatus])
+  @@index([sentAt])
   @@map("messages")
 }
 

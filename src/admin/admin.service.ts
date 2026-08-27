@@ -2,8 +2,9 @@ import { prisma } from "../lib/prisma.js";
 import { decrypt } from "../lib/crypto.js";
 import { config } from "../config/index.js";
 import { applyBan, applySuspension, liftSuspension } from "../safety/enforcement.service.js";
-import { setRetentionHold } from "../conversation/conversation.service.js";
+import { setRetentionHold, clearRetentionHold } from "../conversation/conversation.service.js";
 import { NotFoundError, ValidationError } from "../shared/errors.js";
+import { sniffAudioMime, type AudioMime } from "../safety/audio-mime.js";
 
 // Escalations suspend the reported user for a fixed review window. If founders
 // never act, the suspension lapses rather than holding the user in limbo.
@@ -88,7 +89,7 @@ export async function getReportDetail(reportId: string) {
     include: {
       reporter: { select: { id: true, anonymousAlias: true } },
       reported: { select: { id: true, anonymousAlias: true, banned: true, suspendedUntil: true } },
-      conversation: { select: { id: true, category: true, subTag: true, status: true, retentionHold: true } },
+      conversation: { select: { id: true, category: true, subTag: true, status: true, retentionHoldUntil: true } },
       moderationActions: { orderBy: { createdAt: "desc" as const } },
     },
   });
@@ -275,7 +276,8 @@ export async function takeAction(
       break;
     }
     case "escalate": {
-      // Preserve the evidence first — the hold is one-way and survives resolution.
+      // Preserve the evidence with a BOUNDED safeguarding hold (SAFEGUARDING_HOLD_DAYS).
+      // It auto-expires and can be cleared early via the audited resolve path.
       await setRetentionHold(report.conversationId);
 
       const suspendUntil = new Date();
@@ -306,15 +308,17 @@ export async function takeAction(
 }
 
 /**
- * Founder review of an escalated report. Records the outcome and optionally
- * lifts the interim suspension. Deliberately never touches the conversation:
- * the retention hold set at escalation time is one-way and survives resolution.
+ * Founder review of an escalated report. Records the outcome, optionally lifts
+ * the interim suspension, and optionally clears the bounded safeguarding
+ * retention hold early (an audited action — the retention hold otherwise
+ * auto-expires after SAFEGUARDING_HOLD_DAYS).
  */
 export async function resolveEscalation(
   reportId: string,
   moderatorId: string,
   outcome: string,
   shouldLiftSuspension: boolean,
+  shouldClearRetentionHold = false,
 ) {
   const report = await prisma.report.findUnique({ where: { id: reportId } });
   if (!report) throw new NotFoundError("Report not found");
@@ -351,6 +355,10 @@ export async function resolveEscalation(
     );
   }
 
+  if (shouldClearRetentionHold && report.conversationId) {
+    await clearRetentionHold(report.conversationId);
+  }
+
   return moderationAction;
 }
 
@@ -366,7 +374,7 @@ export async function resolveEscalation(
 export async function getReportedVoiceAudio(
   reportId: string,
   messageId: string,
-): Promise<{ base64Audio: string }> {
+): Promise<{ base64Audio: string; mimeType: AudioMime }> {
   const report = await prisma.report.findUnique({
     where: { id: reportId },
     select: { conversationId: true, reportedMessageId: true },
@@ -390,7 +398,14 @@ export async function getReportedVoiceAudio(
   }
 
   const base64Audio = decrypt({ ciphertext: message.content, iv: message.iv, authTag: message.authTag });
-  return { base64Audio };
+  // Determine the real container from the decrypted bytes (never a client
+  // value). Unsupported/malformed audio fails safe rather than being served
+  // under a guessed type.
+  const mimeType = sniffAudioMime(base64Audio);
+  if (!mimeType) {
+    throw new ValidationError("Unsupported audio format");
+  }
+  return { base64Audio, mimeType };
 }
 
 export async function getDashboardStats() {

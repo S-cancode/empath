@@ -9,8 +9,21 @@ import { join } from "node:path";
 const eas = JSON.parse(
   readFileSync(join(__dirname, "..", "..", "client", "eas.json"), "utf-8"),
 ) as {
-  build: Record<string, { extends?: string; distribution?: string; env?: Record<string, string> }>;
+  build: Record<string, { extends?: string; distribution?: string; channel?: string; env?: Record<string, string> }>;
+  submit: Record<string, { ios?: Record<string, string> }>;
 };
+
+/** Resolve a build profile's effective channel across `extends`. */
+function resolveChannel(name: string): string | undefined {
+  let cur: string | undefined = name;
+  const seen: string[] = [];
+  while (cur && !seen.includes(cur)) {
+    seen.push(cur);
+    if (eas.build[cur]?.channel !== undefined) return eas.build[cur].channel;
+    cur = eas.build[cur]?.extends;
+  }
+  return undefined;
+}
 
 /** Resolve a build profile's effective distribution/env across `extends`. */
 function resolveProfile(name: string): { distribution?: string; env: Record<string, string> } {
@@ -53,16 +66,35 @@ describe("eas.json — App Store review build profile", () => {
     expect(env.EXPO_PUBLIC_REVIEW_MODE).toBe("true");
   });
 
-  it("store-review keeps the production release settings (autoIncrement, channel, Sentry)", () => {
-    // Dropping autoIncrement causes duplicate-build-number rejection at ASC;
-    // wrong channel/DSN sends the review build to the wrong OTA/diagnostics.
+  it("store-review keeps the release settings (autoIncrement, Sentry)", () => {
+    // Dropping autoIncrement causes duplicate-build-number rejection at ASC.
     const prof = eas.build["store-review"];
     const inherited = eas.build[prof.extends ?? ""] ?? {};
     const autoIncrement = prof.autoIncrement ?? (inherited as any).autoIncrement;
-    const channel = prof.channel ?? (inherited as any).channel;
     expect(autoIncrement).toBe(true);
-    expect(channel).toBe("production");
     expect(resolveProfile("store-review").env.EXPO_PUBLIC_SENTRY_DSN).toBeTruthy();
+  });
+
+  it("store-review is OTA-isolated from production (different EAS update channel)", () => {
+    // A production update (published to the production channel) must not be able
+    // to replace the review JavaScript and hide the App Review Access UI.
+    const reviewChannel = resolveChannel("store-review");
+    const prodChannel = resolveChannel("production");
+    expect(reviewChannel).toBeTruthy();
+    expect(prodChannel).toBeTruthy();
+    expect(reviewChannel).not.toBe(prodChannel);
+  });
+
+  it("production does NOT compile with review mode", () => {
+    // Only the store-review build carries EXPO_PUBLIC_REVIEW_MODE.
+    expect(resolveProfile("production").env.EXPO_PUBLIC_REVIEW_MODE).toBeUndefined();
+  });
+
+  it("a matching submit profile exists for the store-review build profile", () => {
+    // `eas submit --profile store-review` must resolve, with the same ASC ids.
+    expect(eas.submit["store-review"]?.ios).toBeTruthy();
+    expect(eas.submit["store-review"].ios!.ascAppId).toBe(eas.submit["production"].ios!.ascAppId);
+    expect(eas.submit["store-review"].ios!.appleTeamId).toBe(eas.submit["production"].ios!.appleTeamId);
   });
 
   it("no build profile compiles a review access secret into the client", () => {

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { View, Text, Image, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import * as AppleAuthentication from "expo-apple-authentication";
+import * as SecureStore from "expo-secure-store";
+import { APPLE_USER_ID_KEY } from "@/lib/apple-credential";
 import { colors } from "@/theme/colors";
 import { typography } from "@/theme/typography";
 import { getDeviceId } from "@/lib/device-id";
@@ -45,6 +47,11 @@ export default function SignInScreen() {
         throw new Error("Apple did not return an identity token. Please try again.");
       }
       const deviceId = await getDeviceId();
+      // Remember the Apple user id (sub) so we can poll credential state on
+      // resume and force sign-out if the user revokes access outside Empath.
+      if (credential.user) {
+        await SecureStore.setItemAsync(APPLE_USER_ID_KEY, credential.user);
+      }
       // authorizationCode is present on first consent (and repeat logins);
       // Apple may omit it on silent re-auth — the server handles either case.
       const response = await signInWithApple(
