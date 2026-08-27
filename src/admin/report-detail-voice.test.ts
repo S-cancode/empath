@@ -32,7 +32,7 @@ describe("getReportDetail — voice content never leaks into JSON", () => {
       conversationLog: null, // forces the live-message fallback
       reporter: { id: "reporter", anonymousAlias: "A" },
       reported: { id: "reported", anonymousAlias: "B", banned: false, suspendedUntil: null },
-      conversation: { id: "conv-1", category: "grief", subTag: null, status: "active", retentionHold: false },
+      conversation: { id: "conv-1", category: "grief", subTag: null, status: "active", retentionHoldUntil: null },
       moderationActions: [],
     });
     // A live voice message whose encrypted content is the base64 audio.

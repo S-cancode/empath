@@ -186,6 +186,16 @@
     return 'badge-reviewed';
   }
 
+  // The safeguarding hold is time-bounded (auto-expires; not permanent). Show
+  // the active window only while retentionHoldUntil is still in the future —
+  // after it lapses the conversation's messages return to 7-day deletion.
+  function retentionLabel(until) {
+    if (until && new Date(until) > new Date()) {
+      return '🔒 Safeguarding hold until ' + new Date(until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    return '—';
+  }
+
   async function loadStats() {
     const s = await api('/stats');
     document.getElementById('stat-pending').textContent = s.pendingCount;
@@ -257,7 +267,7 @@
       '<div class="info-item"><label>Reported</label>' + esc(r.reported.anonymousAlias) + '</div>' +
       '<div class="info-item"><label>Category</label>' + esc(r.reason) + '</div>' +
       '<div class="info-item"><label>Conversation</label>' + esc(r.conversation?.category || '-') + '</div>' +
-      '<div class="info-item"><label>Evidence</label>' + (r.conversation?.retentionHold ? '🔒 Retention hold (permanent)' : '—') + '</div>' +
+      '<div class="info-item"><label>Evidence</label>' + retentionLabel(r.conversation?.retentionHoldUntil) + '</div>' +
       '</div>';
 
     if (r.details) {

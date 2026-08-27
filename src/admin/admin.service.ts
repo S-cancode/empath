@@ -89,7 +89,7 @@ export async function getReportDetail(reportId: string) {
     include: {
       reporter: { select: { id: true, anonymousAlias: true } },
       reported: { select: { id: true, anonymousAlias: true, banned: true, suspendedUntil: true } },
-      conversation: { select: { id: true, category: true, subTag: true, status: true, retentionHold: true } },
+      conversation: { select: { id: true, category: true, subTag: true, status: true, retentionHoldUntil: true } },
       moderationActions: { orderBy: { createdAt: "desc" as const } },
     },
   });
